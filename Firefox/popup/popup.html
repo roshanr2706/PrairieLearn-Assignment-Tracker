@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PrairieLearn Tracker</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main class="app">
+      <header class="header">
+        <h1>PrairieLearn Tracker</h1>
+        <p id="statusLine" class="status">Loading dashboard...</p>
+        <p id="metaLine" class="meta"></p>
+        <div class="actions">
+          <button id="refreshBtn" type="button" class="primary">Refresh</button>
+          <button id="openHomeBtn" type="button" class="secondary">Open Home</button>
+        </div>
+      </header>
+
+      <section>
+        <table class="upcoming" aria-label="Upcoming assessments">
+          <thead>
+            <tr>
+              <th>Course</th>
+              <th>Assessment</th>
+              <th>Due</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="upcomingBody"></tbody>
+        </table>
+      </section>
+
+      <p id="emptyState" class="empty hidden"></p>
+    </main>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

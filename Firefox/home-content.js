@@ -96,10 +96,10 @@ function createHomeUpcomingCard() {
   title.className = "mb-0";
   title.textContent = "Upcoming";
 
-  const subtitle = document.createElement("span");
+  const subtitle = document.createElement("p");
   subtitle.id = HOME_CARD_SUBTITLE_ID;
-  subtitle.className = "ms-2 small";
-  subtitle.textContent = "Due in 2 weeks or less, not 100%";
+  subtitle.className = "mb-0 ms-3 small opacity-75";
+  subtitle.textContent = "Loading...";
 
   const refreshButton = document.createElement("button");
   refreshButton.id = HOME_CARD_REFRESH_ID;
@@ -162,7 +162,7 @@ async function refreshAndRenderHomeUpcoming() {
   }
 
   await loadAndRenderHomeUpcomingFromBackground();
-} 
+}
 
 function renderHomeUpcomingFromDashboard(dashboard) {
   const host = getHomeCardsHost();
@@ -177,7 +177,8 @@ function renderHomeUpcomingFromDashboard(dashboard) {
   }
 
   const filtered = getTwoWeekPendingAssessments(dashboard);
-  setHomeCardSubtitle(` `);
+  const refreshedAt = dashboard?.meta?.lastRefreshAt || null;
+  const refreshedLabel = refreshedAt ? `Last updated ${formatHomeDueAt(refreshedAt)}` : "Last updated just now";
 
   body.innerHTML = "";
   if (!filtered.length) {
@@ -185,6 +186,7 @@ function renderHomeUpcomingFromDashboard(dashboard) {
     empty.className = HOME_CARD_EMPTY_CLASS;
     empty.textContent = "No incomplete assessments due in the next 2 weeks.";
     body.appendChild(empty);
+    setHomeCardSubtitle(refreshedLabel);
     return;
   }
 
@@ -245,6 +247,7 @@ function renderHomeUpcomingFromDashboard(dashboard) {
   table.appendChild(tbody);
   tableResponsive.appendChild(table);
   body.appendChild(tableResponsive);
+  setHomeCardSubtitle(` `);
 }
 
 function renderHomeUpcomingError(message) {
