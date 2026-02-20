@@ -26,7 +26,6 @@
     "default_popup": "popup/popup.html"
   },
   "background": {
-    "service_worker": "background.js",
     "scripts": [
       "background.js"
     ]
@@ -40,7 +39,12 @@
   "browser_specific_settings": {
     "gecko": {
       "id": "prairielearn-tracker@local",
-      "strict_min_version": "121.0"
+      "strict_min_version": "121.0",
+      "data_collection_permissions": {
+        "required": [
+          "none"
+        ]
+      }
     }
   }
 }

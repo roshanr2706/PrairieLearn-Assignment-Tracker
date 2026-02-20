@@ -180,7 +180,7 @@ function renderHomeUpcomingFromDashboard(dashboard) {
   const refreshedAt = dashboard?.meta?.lastRefreshAt || null;
   const refreshedLabel = refreshedAt ? `Last updated ${formatHomeDueAt(refreshedAt)}` : "Last updated just now";
 
-  body.innerHTML = "";
+  body.replaceChildren();
   if (!filtered.length) {
     const empty = document.createElement("p");
     empty.className = HOME_CARD_EMPTY_CLASS;
@@ -200,7 +200,13 @@ function renderHomeUpcomingFromDashboard(dashboard) {
   table.setAttribute("aria-label", "Upcoming incomplete assessments");
 
   const thead = document.createElement("thead");
-  thead.innerHTML = "<tr><th>Course</th><th>Assessment</th><th>Due</th><th>Progress</th></tr>";
+  const headerRow = document.createElement("tr");
+  for (const label of ["Course", "Assessment", "Due", "Progress"]) {
+    const heading = document.createElement("th");
+    heading.textContent = label;
+    headerRow.appendChild(heading);
+  }
+  thead.appendChild(headerRow);
   table.appendChild(thead);
 
   const tbody = document.createElement("tbody");
@@ -256,7 +262,7 @@ function renderHomeUpcomingError(message) {
     return;
   }
 
-  body.innerHTML = "";
+  body.replaceChildren();
   const error = document.createElement("p");
   error.className = "text-danger mb-0";
   error.textContent = `Unable to load upcoming tracker data: ${message}`;
@@ -657,9 +663,8 @@ function decodeHtmlEntities(value) {
     return "";
   }
 
-  const textarea = document.createElement("textarea");
-  textarea.innerHTML = value;
-  return textarea.value;
+  const doc = new DOMParser().parseFromString(`<!doctype html><body>${value}`, "text/html");
+  return doc.body?.textContent || "";
 }
 
 function extractCourseInstanceIdsFromHomeDocument(doc) {
