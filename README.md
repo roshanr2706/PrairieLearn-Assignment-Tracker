@@ -2,6 +2,10 @@
 
 Track upcoming PrairieLearn assessments directly on your PrairieLearn home page.
 
+## Screenshot
+
+![PrairieLearn Tracker screenshot](Sample%20Screenshot.png)
+
 ## What this extension does
 
 - Adds an **Upcoming** section above your **Courses** card on `https://*.prairielearn.com/`
