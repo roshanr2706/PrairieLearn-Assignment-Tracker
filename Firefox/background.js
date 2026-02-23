@@ -90,15 +90,10 @@ async function handleRefreshRequest(payload, sender) {
   const meta = await getMeta();
   const senderOrigin = getSenderOrigin(sender);
 
+  const DEFAULT_ORIGIN = "https://us.prairielearn.com";
   const explicitOrigin = normalizePrairieLearnOrigin(payload?.origin);
   const storedOrigin = normalizePrairieLearnOrigin(meta?.origin);
-  const origin = explicitOrigin || storedOrigin || senderOrigin;
-
-  if (!origin) {
-    throw new Error(
-      "No PrairieLearn origin is known yet. Open PrairieLearn home page (/) once while logged in."
-    );
-  }
+  const origin = explicitOrigin || storedOrigin || senderOrigin || DEFAULT_ORIGIN;
 
   let courseInstanceIds = sanitizeCourseInstanceIds(payload?.courseInstanceIds);
   if (!courseInstanceIds.length) {
@@ -198,16 +193,61 @@ async function runBackgroundRefreshAttempt(origin, courseInstanceIds) {
 async function runPageContextRefreshAttempt(origin, courseInstanceIds) {
   const tabSession = await ensurePrairieLearnTab(origin);
   try {
-    const response = await sendMessageToTab(tabSession.tabId, {
+    const message = {
       type: "PL_PAGE_REFRESH_REQUEST",
       payload: {
         origin,
         courseInstanceIds,
       },
-    });
+    };
+
+    let response;
+    let lastError;
+    const MAX_RETRIES = 3;
+    const RETRY_DELAY_MS = 1500;
+
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      try {
+        response = await sendMessageToTab(tabSession.tabId, message);
+        lastError = null;
+        break;
+      } catch (tabError) {
+        lastError = tabError;
+        const isConnectionError = /does not exist|could not establish/i.test(
+          toErrorMessage(tabError)
+        );
+        if (!isConnectionError || attempt === MAX_RETRIES - 1) {
+          break;
+        }
+
+        // Content script not ready yet — try injecting it manually, then wait and retry.
+        if (attempt === 0) {
+          try {
+            await browser.scripting.executeScript({
+              target: { tabId: tabSession.tabId },
+              files: ["home-content.js"],
+            });
+          } catch {
+            // Injection may fail if already loaded or permissions issue — ignore and retry anyway.
+          }
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
+      }
+    }
+
+    if (lastError) {
+      throw new Error(
+        `Could not reach the PrairieLearn content script after ${MAX_RETRIES} attempts. ` +
+        `Try reloading the PrairieLearn page. (${toErrorMessage(lastError)})`
+      );
+    }
 
     if (!response?.ok) {
-      throw new Error(response?.error || "Page-context refresh message failed.");
+      throw new Error(
+        response?.error ||
+        "Page-context refresh returned a failure. You may be logged out of PrairieLearn."
+      );
     }
 
     const snapshots = Array.isArray(response.snapshots) ? response.snapshots : [];

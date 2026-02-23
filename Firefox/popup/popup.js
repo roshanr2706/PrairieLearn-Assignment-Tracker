@@ -10,7 +10,8 @@ let latestOrigin = null;
 refreshButton.addEventListener("click", async () => {
   setBusy(true, "Refreshing PrairieLearn data...");
   try {
-    const response = await sendMessage({ type: "PL_REFRESH_REQUEST" });
+    const payload = latestOrigin ? { origin: latestOrigin } : {};
+    const response = await sendMessage({ type: "PL_REFRESH_REQUEST", payload });
     if (!response?.ok) {
       throw new Error(response?.error || "Refresh failed.");
     }
