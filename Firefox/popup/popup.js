@@ -150,22 +150,63 @@ function renderDueCell(item) {
 
 function renderStatusCell(item) {
   const cell = document.createElement("td");
-  const pill = document.createElement("span");
-  pill.className = "status-pill";
+  const percent = parseScorePercent(item.score);
 
-  if (item.score) {
-    pill.textContent = item.score;
-    pill.classList.add("good");
-  } else {
-    const label = statusToLabel(item.status);
-    pill.textContent = label;
-    if (item.status === "not_started" || item.status === "action_available") {
-      pill.classList.add("warn");
+  const progressContainer = document.createElement("div");
+  progressContainer.className = "pl-progress";
+
+  let fillPercent = 0;
+  let colorClass = "secondary";
+  let label = "";
+
+  if (percent !== null) {
+    fillPercent = Math.min(percent, 100);
+    if (percent >= 100) {
+      colorClass = "success";
+    } else if (percent >= 50) {
+      colorClass = "primary";
+    } else if (percent > 0) {
+      colorClass = "warning";
+    } else {
+      colorClass = "secondary";
     }
+    label = `${percent}%`;
   }
 
-  cell.appendChild(pill);
+  progressContainer.classList.add(`border-${colorClass}`);
+
+  const fill = document.createElement("div");
+  fill.className = `pl-progress-fill bg-${colorClass}`;
+  fill.style.width = `${fillPercent}%`;
+  if (label && fillPercent >= 15) {
+    fill.textContent = label;
+  }
+  progressContainer.appendChild(fill);
+
+  const remainder = document.createElement("div");
+  remainder.className = "pl-progress-remainder";
+  remainder.style.width = `${100 - fillPercent}%`;
+  if (percent === null) {
+    remainder.textContent = statusToLabel(item.status);
+  } else if (label && fillPercent < 15) {
+    remainder.textContent = label;
+  }
+  progressContainer.appendChild(remainder);
+
+  cell.appendChild(progressContainer);
   return cell;
+}
+
+function parseScorePercent(score) {
+  if (typeof score !== "string") {
+    return null;
+  }
+  const match = score.match(/(\d+(?:\.\d+)?)\s*%/);
+  if (!match) {
+    return null;
+  }
+  const value = parseFloat(match[1]);
+  return Number.isNaN(value) ? null : Math.round(value * 10) / 10;
 }
 
 function statusToLabel(status) {
@@ -173,7 +214,7 @@ function statusToLabel(status) {
     return "Not started";
   }
   if (status === "action_available") {
-    return "Action available";
+    return "Start";
   }
   if (status === "scored") {
     return "Scored";
@@ -181,7 +222,7 @@ function statusToLabel(status) {
   if (status === "text_status") {
     return "In progress";
   }
-  return "Unknown";
+  return "—";
 }
 
 function formatDateTime(iso) {

@@ -244,7 +244,8 @@ function renderHomeUpcomingFromDashboard(dashboard) {
 
     const progressCell = document.createElement("td");
     progressCell.className = "align-middle";
-    progressCell.textContent = getHomeProgressLabel(item);
+    progressCell.style.minWidth = "120px";
+    renderHomeProgressBar(progressCell, item);
     row.appendChild(progressCell);
 
     tbody.appendChild(row);
@@ -309,6 +310,55 @@ function formatHomeDueAt(iso) {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function renderHomeProgressBar(cell, item) {
+  const percent = parseScorePercent(item?.score);
+
+  let fillPercent = 0;
+  let colorClass = "secondary";
+  let label = "";
+
+  if (percent !== null) {
+    fillPercent = Math.min(percent, 100);
+    if (percent >= 100) {
+      colorClass = "success";
+    } else if (percent >= 50) {
+      colorClass = "primary";
+    } else if (percent > 0) {
+      colorClass = "warning";
+    } else {
+      colorClass = "secondary";
+    }
+    label = `${percent}%`;
+  }
+
+  const progressContainer = document.createElement("div");
+  progressContainer.className = `progress border border-${colorClass}`;
+  progressContainer.style.minWidth = "5em";
+  progressContainer.style.maxWidth = "20em";
+
+  const fill = document.createElement("div");
+  fill.className = `progress-bar bg-${colorClass}`;
+  fill.style.width = `${fillPercent}%`;
+  if (label && fillPercent >= 15) {
+    fill.textContent = label;
+  }
+  progressContainer.appendChild(fill);
+
+  const remainder = document.createElement("div");
+  remainder.className = "d-flex flex-column justify-content-center text-center";
+  remainder.style.width = `${100 - fillPercent}%`;
+  if (percent === null) {
+    remainder.textContent = getHomeProgressLabel(item);
+    remainder.style.fontSize = "11px";
+  } else if (label && fillPercent < 15) {
+    remainder.textContent = label;
+    remainder.style.fontSize = "11px";
+  }
+  progressContainer.appendChild(remainder);
+
+  cell.appendChild(progressContainer);
 }
 
 function getHomeProgressLabel(item) {
