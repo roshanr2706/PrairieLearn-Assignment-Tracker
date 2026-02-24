@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "PrairieLearn Tracker",
   "description": "Track upcoming PrairieLearn assessments across enrolled courses.",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "permissions": [
     "storage",
     "tabs",

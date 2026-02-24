@@ -5,6 +5,13 @@ const HOME_CARD_SUBTITLE_ID = "pl-tracker-upcoming-subtitle";
 const HOME_CARD_REFRESH_ID = "pl-tracker-upcoming-refresh";
 const HOME_CARD_EMPTY_CLASS = "pl-tracker-upcoming-empty";
 const ASSESSMENT_PIN_BUTTON_CLASS = "pl-tracker-pin-btn";
+const PRAIRIE_TEST_HOSTNAME = "us.prairielearn.com";
+const PRAIRIE_TEST_URL = "https://us.prairietest.com/pt";
+const PRAIRIE_TEST_NAV_ITEM_ID = "pl-tracker-prairietest-link";
+
+if (shouldInjectPrairieTestLink()) {
+  initPrairieTestHeaderLink();
+}
 
 if (isPrairieLearnHomePage()) {
   void initHomeUpcomingSection();
@@ -53,6 +60,77 @@ function isPrairieLearnHomePage() {
 function isAssessmentsPage() {
   const path = window.location.pathname || "";
   return /^\/pl\/course_instance\/\d+\/assessments\/?$/.test(path);
+}
+
+function shouldInjectPrairieTestLink() {
+  return window.location.hostname.toLowerCase() === PRAIRIE_TEST_HOSTNAME;
+}
+
+function initPrairieTestHeaderLink() {
+  if (ensurePrairieTestHeaderLink()) {
+    return;
+  }
+
+  const observer = new MutationObserver(() => {
+    if (ensurePrairieTestHeaderLink()) {
+      observer.disconnect();
+    }
+  });
+
+  observer.observe(document.documentElement, { childList: true, subtree: true });
+  window.setTimeout(() => observer.disconnect(), 10000);
+}
+
+function ensurePrairieTestHeaderLink() {
+  const navList = document.querySelector("#course-nav #main-nav") || document.querySelector("#main-nav");
+  if (!navList) {
+    return false;
+  }
+
+  if (navList.querySelector(`#${PRAIRIE_TEST_NAV_ITEM_ID}`)) {
+    return true;
+  }
+
+  const existing = Array.from(navList.querySelectorAll("a")).some((anchor) => {
+    const label = normalizeWhitespace(anchor.textContent).toLowerCase();
+    return (
+      label === "prairietest" ||
+      label === "prairie test" ||
+      anchor.href.startsWith(PRAIRIE_TEST_URL)
+    );
+  });
+  if (existing) {
+    return true;
+  }
+
+  const navItem = document.createElement("li");
+  navItem.id = PRAIRIE_TEST_NAV_ITEM_ID;
+  navItem.className = "nav-item";
+
+  const link = document.createElement("a");
+  link.className = "nav-link";
+  link.href = PRAIRIE_TEST_URL;
+  link.textContent = "PrairieTest";
+  navItem.appendChild(link);
+
+  const homeItem = Array.from(navList.querySelectorAll(":scope > li.nav-item")).find((item) => {
+    const homeLink = item.querySelector("a.nav-link");
+    if (!homeLink) {
+      return false;
+    }
+
+    const label = normalizeWhitespace(homeLink.textContent).toLowerCase();
+    const href = (homeLink.getAttribute("href") || "").trim();
+    return label === "home" || href === "/" || href === "/pl" || href === "/pl/";
+  });
+
+  if (homeItem?.parentElement === navList) {
+    homeItem.insertAdjacentElement("afterend", navItem);
+  } else {
+    navList.appendChild(navItem);
+  }
+
+  return true;
 }
 
 function getHomeCardsHost() {
