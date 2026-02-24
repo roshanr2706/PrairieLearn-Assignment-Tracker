@@ -1,5 +1,6 @@
 const STORAGE_META_KEY = "pl.meta";
 const STORAGE_COURSE_PREFIX = "pl.course.";
+const STORAGE_PINNED_KEY = "pl.pinned_assessments";
 const REFRESH_CONCURRENCY = 3;
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -33,6 +34,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (message.type === "PL_GET_DASHBOARD") {
         const dashboard = await buildDashboardData();
         sendResponse({ ok: true, data: dashboard });
+        return;
+      }
+
+      if (message.type === "PL_GET_ASSESSMENT_PINS") {
+        const data = await getAssessmentPinStates(message.payload);
+        sendResponse({ ok: true, data });
+        return;
+      }
+
+      if (message.type === "PL_TOGGLE_ASSESSMENT_PIN") {
+        const result = await toggleAssessmentPin(message.payload);
+        sendResponse({ ok: true, ...result });
         return;
       }
 
@@ -135,6 +148,10 @@ async function refreshCourses(origin, courseInstanceIds) {
   let attempt = await runBackgroundRefreshAttempt(origin, ids);
 
   if (attempt.succeeded === 0 && attempt.failed === ids.length) {
+    const bgErrors = attempt.errors.map((e) => `${e.courseInstanceId}: ${e.error}`).join("; ");
+    console.warn(
+      `[PL Tracker] All ${ids.length} background fetches failed. Errors: ${bgErrors}. Trying page-context fallback...`
+    );
     try {
       const pageAttempt = await runPageContextRefreshAttempt(origin, ids);
       if (pageAttempt.succeeded > 0 || pageAttempt.failed < attempt.failed) {
@@ -142,13 +159,13 @@ async function refreshCourses(origin, courseInstanceIds) {
       } else {
         attempt.errors.push({
           courseInstanceId: "*",
-          error: "Page-context refresh did not improve results.",
+          error: `Page-context refresh also failed. Background errors: ${bgErrors}`,
         });
       }
     } catch (error) {
       attempt.errors.push({
         courseInstanceId: "*",
-        error: `Page-context fallback failed: ${toErrorMessage(error)}`,
+        error: `Page-context fallback failed: ${toErrorMessage(error)}. Background errors: ${bgErrors}`,
       });
     }
   }
@@ -223,7 +240,11 @@ async function runPageContextRefreshAttempt(origin, courseInstanceIds) {
         // Content script not ready yet — try injecting it manually, then wait and retry.
         if (attempt === 0) {
           try {
-            await browser.scripting.executeScript({
+            const scriptingApi =
+              typeof browser !== "undefined" && browser?.scripting
+                ? browser.scripting
+                : chrome.scripting;
+            await scriptingApi.executeScript({
               target: { tabId: tabSession.tabId },
               files: ["home-content.js"],
             });
@@ -404,7 +425,7 @@ function parseAssessmentsDocument(doc, context) {
     const accessWindows = parsePopoverAccessDetails(popoverButton);
 
     const scoreCell = cells[3];
-    const score = normalizeWhitespace(scoreCell.querySelector(".progress-bar")?.textContent);
+    const score = extractScorePercentFromCell(scoreCell);
     const scoreText = normalizeWhitespace(scoreCell.textContent);
 
     let status = "unknown";
@@ -488,6 +509,83 @@ function parsePopoverAccessDetails(buttonElement) {
       endIso: parsePrairieLearnTimestamp(end),
     };
   });
+}
+
+function extractScorePercentFromCell(scoreCell) {
+  if (!scoreCell) {
+    return null;
+  }
+
+  const directPercent = findPercentString(scoreCell.querySelector(".progress-bar")?.textContent);
+  if (directPercent) {
+    return directPercent;
+  }
+
+  const ariaCandidates = [
+    scoreCell.querySelector(".progress-bar")?.getAttribute("aria-valuenow"),
+    scoreCell.querySelector(".progress")?.getAttribute("aria-valuenow"),
+  ];
+  for (const ariaValue of ariaCandidates) {
+    const normalized = normalizeNumericPercentString(ariaValue);
+    if (normalized) {
+      return normalized;
+    }
+  }
+
+  const styleCandidates = [
+    scoreCell.querySelector(".progress-bar")?.getAttribute("style"),
+    scoreCell.querySelector(".progress")?.getAttribute("style"),
+  ];
+  for (const styleValue of styleCandidates) {
+    const widthPercent = findPercentFromStyle(styleValue);
+    if (widthPercent) {
+      return widthPercent;
+    }
+  }
+
+  return findPercentString(scoreCell.textContent);
+}
+
+function findPercentFromStyle(styleText) {
+  if (typeof styleText !== "string" || !styleText.trim()) {
+    return null;
+  }
+
+  const match = styleText.match(/width\s*:\s*([+-]?\d+(?:\.\d+)?)\s*%/i);
+  if (!match) {
+    return null;
+  }
+
+  return normalizeNumericPercentString(match[1]);
+}
+
+function findPercentString(text) {
+  if (typeof text !== "string" || !text.trim()) {
+    return null;
+  }
+
+  const match = text.match(/([+-]?\d+(?:\.\d+)?)\s*%/);
+  if (!match) {
+    return null;
+  }
+
+  return normalizeNumericPercentString(match[1]);
+}
+
+function normalizeNumericPercentString(raw) {
+  if (typeof raw !== "string" || !raw.trim()) {
+    return null;
+  }
+
+  const value = Number.parseFloat(raw.trim());
+  if (!Number.isFinite(value)) {
+    return null;
+  }
+
+  const clamped = Math.min(Math.max(value, 0), 100);
+  const rounded = Math.round(clamped * 10) / 10;
+  const formatted = Number.isInteger(rounded) ? String(rounded) : String(rounded);
+  return `${formatted}%`;
 }
 
 function getEffectiveDueTimestamp(accessWindows, availabilityText) {
@@ -611,9 +709,275 @@ function extractCourseInstanceIdsFromHomeDocument(doc) {
   return sanitizeCourseInstanceIds(courses.map((course) => course?.course_instance?.id));
 }
 
+async function getAssessmentPinStates(payload) {
+  const assessments = Array.isArray(payload?.assessments) ? payload.assessments : [];
+  let pinnedById = await getPinnedAssessmentStore();
+  let changed = false;
+  const nowMs = Date.now();
+
+  for (const [pinId, pin] of Object.entries(pinnedById)) {
+    if (isDueDateInPast(pin?.dueAt, nowMs)) {
+      delete pinnedById[pinId];
+      changed = true;
+    }
+  }
+
+  const items = assessments.map((assessment) => {
+    const identity = buildAssessmentIdentity(
+      assessment,
+      payload?.courseInstanceId || assessment?.courseInstanceId,
+      payload?.origin || null
+    );
+    if (!identity) {
+      return { pinId: null, pinned: false };
+    }
+
+    const existing = pinnedById[identity.pinId];
+    if (!existing) {
+      return { pinId: identity.pinId, pinned: false };
+    }
+
+    const latestDueAt = normalizeIsoTimestamp(assessment?.dueAt) || existing.dueAt || null;
+    if (isDueDateInPast(latestDueAt, nowMs)) {
+      delete pinnedById[identity.pinId];
+      changed = true;
+      return { pinId: identity.pinId, pinned: false };
+    }
+
+    const merged = mergePinEntryWithAssessment(existing, assessment, identity);
+    if (merged.changed) {
+      pinnedById[identity.pinId] = merged.entry;
+      changed = true;
+    }
+
+    return { pinId: identity.pinId, pinned: true };
+  });
+
+  if (changed) {
+    await chrome.storage.local.set({ [STORAGE_PINNED_KEY]: pinnedById });
+  }
+
+  return { items };
+}
+
+async function toggleAssessmentPin(payload) {
+  const assessment = payload?.assessment;
+  const identity = buildAssessmentIdentity(
+    assessment,
+    assessment?.courseInstanceId,
+    payload?.origin || null
+  );
+  if (!identity) {
+    throw new Error("Invalid assessment payload for pinning.");
+  }
+
+  let pinnedById = await getPinnedAssessmentStore();
+  let changed = false;
+  const nowMs = Date.now();
+
+  for (const [pinId, pin] of Object.entries(pinnedById)) {
+    if (isDueDateInPast(pin?.dueAt, nowMs)) {
+      delete pinnedById[pinId];
+      changed = true;
+    }
+  }
+
+  const existing = pinnedById[identity.pinId];
+  if (existing) {
+    delete pinnedById[identity.pinId];
+    changed = true;
+    await chrome.storage.local.set({ [STORAGE_PINNED_KEY]: pinnedById });
+    return { pinId: identity.pinId, pinned: false };
+  }
+
+  const dueAt = normalizeIsoTimestamp(assessment?.dueAt);
+  if (isDueDateInPast(dueAt, nowMs)) {
+    if (changed) {
+      await chrome.storage.local.set({ [STORAGE_PINNED_KEY]: pinnedById });
+    }
+    return { pinId: identity.pinId, pinned: false };
+  }
+
+  pinnedById[identity.pinId] = createPinEntryFromAssessment(assessment, identity);
+  await chrome.storage.local.set({ [STORAGE_PINNED_KEY]: pinnedById });
+  return { pinId: identity.pinId, pinned: true };
+}
+
+async function getPinnedAssessmentStore() {
+  const result = await chrome.storage.local.get(STORAGE_PINNED_KEY);
+  return sanitizePinnedAssessmentStore(result[STORAGE_PINNED_KEY]);
+}
+
+function sanitizePinnedAssessmentStore(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return {};
+  }
+
+  const sanitized = {};
+  for (const [key, value] of Object.entries(raw)) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      continue;
+    }
+
+    const pinId = typeof key === "string" && key.trim() ? key.trim() : null;
+    const courseInstanceId = String(value.courseInstanceId || "").trim();
+    if (!pinId || !/^\d+$/.test(courseInstanceId)) {
+      continue;
+    }
+
+    const normalizedDueAt = normalizeIsoTimestamp(value.dueAt);
+    sanitized[pinId] = {
+      pinId,
+      courseInstanceId,
+      title: normalizeWhitespace(String(value.title || "Untitled")) || "Untitled",
+      badge: normalizeWhitespace(String(value.badge || "")) || null,
+      group: normalizeWhitespace(String(value.group || "")) || null,
+      href: typeof value.href === "string" && value.href.trim() ? value.href : null,
+      absoluteUrl: typeof value.absoluteUrl === "string" && value.absoluteUrl.trim()
+        ? value.absoluteUrl
+        : null,
+      dueAt: normalizedDueAt,
+      pinnedAt: normalizeIsoTimestamp(value.pinnedAt) || new Date().toISOString(),
+      updatedAt: normalizeIsoTimestamp(value.updatedAt) || new Date().toISOString(),
+    };
+  }
+
+  return sanitized;
+}
+
+function createPinEntryFromAssessment(assessment, identity) {
+  return {
+    pinId: identity.pinId,
+    courseInstanceId: identity.courseInstanceId,
+    title: normalizeWhitespace(assessment?.title || "") || "Untitled",
+    badge: normalizeWhitespace(assessment?.badge || "") || null,
+    group: normalizeWhitespace(assessment?.group || "") || null,
+    href: identity.href || (typeof assessment?.href === "string" ? assessment.href : null),
+    absoluteUrl:
+      identity.absoluteUrl || (typeof assessment?.absoluteUrl === "string" ? assessment.absoluteUrl : null),
+    dueAt: normalizeIsoTimestamp(assessment?.dueAt),
+    pinnedAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function mergePinEntryWithAssessment(existing, assessment, identity) {
+  const merged = {
+    ...existing,
+    courseInstanceId: identity.courseInstanceId,
+    title: normalizeWhitespace(assessment?.title || "") || existing.title || "Untitled",
+    badge: normalizeWhitespace(assessment?.badge || "") || existing.badge || null,
+    group: normalizeWhitespace(assessment?.group || "") || existing.group || null,
+    href: identity.href || existing.href || null,
+    absoluteUrl: identity.absoluteUrl || existing.absoluteUrl || null,
+    dueAt: normalizeIsoTimestamp(assessment?.dueAt) || existing.dueAt || null,
+    updatedAt: new Date().toISOString(),
+  };
+
+  const changed =
+    merged.courseInstanceId !== existing.courseInstanceId ||
+    merged.title !== existing.title ||
+    merged.badge !== existing.badge ||
+    merged.group !== existing.group ||
+    merged.href !== existing.href ||
+    merged.absoluteUrl !== existing.absoluteUrl ||
+    merged.dueAt !== existing.dueAt;
+
+  return {
+    changed,
+    entry: changed ? merged : existing,
+  };
+}
+
+function buildAssessmentIdentity(assessment, fallbackCourseInstanceId, origin) {
+  if (!assessment || typeof assessment !== "object") {
+    return null;
+  }
+
+  const courseInstanceId = String(
+    assessment.courseInstanceId || fallbackCourseInstanceId || ""
+  ).trim();
+  if (!/^\d+$/.test(courseInstanceId)) {
+    return null;
+  }
+
+  const absoluteUrlCandidate =
+    typeof assessment.absoluteUrl === "string" && assessment.absoluteUrl.trim()
+      ? assessment.absoluteUrl
+      : null;
+  const hrefCandidate =
+    typeof assessment.href === "string" && assessment.href.trim() ? assessment.href : null;
+
+  const normalizedHref = normalizeAssessmentHref(
+    absoluteUrlCandidate || hrefCandidate,
+    origin || null
+  );
+  const titleKey = normalizeWhitespace(assessment.title || "").toLowerCase();
+  const badgeKey = normalizeWhitespace(assessment.badge || "").toLowerCase();
+  const groupKey = normalizeWhitespace(assessment.group || "").toLowerCase();
+  const fallbackKey = `title:${titleKey}|badge:${badgeKey}|group:${groupKey}`;
+  const keyPart = normalizedHref || fallbackKey;
+
+  if (!keyPart || keyPart === "title:|badge:|group:") {
+    return null;
+  }
+
+  return {
+    pinId: `${courseInstanceId}|${keyPart}`,
+    courseInstanceId,
+    href: hrefCandidate,
+    absoluteUrl: absoluteUrlCandidate,
+  };
+}
+
+function normalizeAssessmentHref(href, origin) {
+  if (typeof href !== "string" || !href.trim()) {
+    return null;
+  }
+
+  const normalizedOrigin = normalizePrairieLearnOrigin(origin) || "https://us.prairielearn.com";
+
+  try {
+    const url = new URL(href, normalizedOrigin);
+    return `${url.pathname}${url.search}`.toLowerCase();
+  } catch {
+    return normalizeWhitespace(href).toLowerCase();
+  }
+}
+
+function isDueDateInPast(dueAtIso, nowMs = Date.now()) {
+  const normalized = normalizeIsoTimestamp(dueAtIso);
+  if (!normalized) {
+    return false;
+  }
+
+  const dueMs = Date.parse(normalized);
+  if (Number.isNaN(dueMs)) {
+    return false;
+  }
+
+  return dueMs <= nowMs;
+}
+
+function normalizeIsoTimestamp(value) {
+  if (typeof value !== "string" || !value.trim()) {
+    return null;
+  }
+
+  const time = Date.parse(value);
+  if (Number.isNaN(time)) {
+    return null;
+  }
+
+  return new Date(time).toISOString();
+}
+
 async function buildDashboardData() {
   const all = await chrome.storage.local.get(null);
   const meta = all[STORAGE_META_KEY] || null;
+  let pinnedById = sanitizePinnedAssessmentStore(all[STORAGE_PINNED_KEY]);
+  let pinnedStoreChanged = false;
+  const nowMs = Date.now();
 
   const snapshots = Object.entries(all)
     .filter(([key]) => key.startsWith(STORAGE_COURSE_PREFIX))
@@ -622,6 +986,14 @@ async function buildDashboardData() {
 
   const upcoming = [];
   let assessmentCount = 0;
+  let pinnedCount = 0;
+
+  for (const [pinId, pin] of Object.entries(pinnedById)) {
+    if (isDueDateInPast(pin?.dueAt, nowMs)) {
+      delete pinnedById[pinId];
+      pinnedStoreChanged = true;
+    }
+  }
 
   for (const snapshot of snapshots) {
     for (const assessment of snapshot.assessments) {
@@ -639,6 +1011,32 @@ async function buildDashboardData() {
         continue;
       }
 
+      const identity = buildAssessmentIdentity(
+        assessment,
+        snapshot.courseInstanceId,
+        snapshot.origin
+      );
+
+      const pinId = identity?.pinId || null;
+      const existingPin = pinId ? pinnedById[pinId] : null;
+      let isPinned = Boolean(existingPin);
+
+      if (isPinned) {
+        const latestDueAt = normalizeIsoTimestamp(assessment.dueAt) || existingPin.dueAt || null;
+        if (isDueDateInPast(latestDueAt, nowMs)) {
+          delete pinnedById[pinId];
+          pinnedStoreChanged = true;
+          isPinned = false;
+        } else {
+          const merged = mergePinEntryWithAssessment(existingPin, assessment, identity);
+          if (merged.changed) {
+            pinnedById[pinId] = merged.entry;
+            pinnedStoreChanged = true;
+          }
+          pinnedCount += 1;
+        }
+      }
+
       upcoming.push({
         courseInstanceId: snapshot.courseInstanceId,
         courseLabel: assessment.courseLabel || snapshot.courseLabel || snapshot.courseInstanceId || "Course",
@@ -650,9 +1048,15 @@ async function buildDashboardData() {
         availabilityText: assessment.availabilityText || null,
         score: assessment.score || null,
         status: assessment.status || "unknown",
+        pinId,
+        isPinned,
         capturedAt: assessment.capturedAt || snapshot.updatedAt || null,
       });
     }
+  }
+
+  if (pinnedStoreChanged) {
+    await chrome.storage.local.set({ [STORAGE_PINNED_KEY]: pinnedById });
   }
 
   upcoming.sort(compareUpcomingAssessments);
@@ -663,6 +1067,7 @@ async function buildDashboardData() {
       courseSnapshots: snapshots.length,
       assessments: assessmentCount,
       upcoming: upcoming.length,
+      pinned: pinnedCount,
     },
     upcoming,
   };

@@ -4,9 +4,14 @@ const HOME_CARD_BODY_ID = "pl-tracker-upcoming-body";
 const HOME_CARD_SUBTITLE_ID = "pl-tracker-upcoming-subtitle";
 const HOME_CARD_REFRESH_ID = "pl-tracker-upcoming-refresh";
 const HOME_CARD_EMPTY_CLASS = "pl-tracker-upcoming-empty";
+const ASSESSMENT_PIN_BUTTON_CLASS = "pl-tracker-pin-btn";
 
 if (isPrairieLearnHomePage()) {
   void initHomeUpcomingSection();
+}
+
+if (isAssessmentsPage()) {
+  void initAssessmentsPinButtons();
 }
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -43,6 +48,11 @@ async function initHomeUpcomingSection() {
 function isPrairieLearnHomePage() {
   const path = window.location.pathname || "/";
   return path === "/" || path === "/pl" || path === "/pl/";
+}
+
+function isAssessmentsPage() {
+  const path = window.location.pathname || "";
+  return /^\/pl\/course_instance\/\d+\/assessments\/?$/.test(path);
 }
 
 function getHomeCardsHost() {
@@ -96,11 +106,6 @@ function createHomeUpcomingCard() {
   title.className = "mb-0";
   title.textContent = "Upcoming";
 
-  const subtitle = document.createElement("span");
-  subtitle.id = HOME_CARD_SUBTITLE_ID;
-  subtitle.className = "ms-2 small";
-  subtitle.textContent = "Due in 2 weeks or less, not 100%";
-
   const refreshButton = document.createElement("button");
   refreshButton.id = HOME_CARD_REFRESH_ID;
   refreshButton.type = "button";
@@ -119,7 +124,6 @@ function createHomeUpcomingCard() {
   });
 
   header.appendChild(title);
-  header.appendChild(subtitle);
   header.appendChild(refreshButton);
   card.appendChild(header);
 
@@ -164,6 +168,239 @@ async function refreshAndRenderHomeUpcoming() {
   await loadAndRenderHomeUpcomingFromBackground();
 } 
 
+async function initAssessmentsPinButtons() {
+  const tbody = await waitForAssessmentsTableBody(10000);
+  if (!tbody) {
+    return;
+  }
+
+  const courseInstanceId = getCourseInstanceIdFromPath(window.location.pathname);
+  if (!courseInstanceId) {
+    return;
+  }
+
+  const rows = collectAssessmentsForPinning(tbody, courseInstanceId);
+  if (!rows.length) {
+    return;
+  }
+
+  let pinStates = [];
+  try {
+    const response = await sendMessageToBackground({
+      type: "PL_GET_ASSESSMENT_PINS",
+      payload: {
+        origin: window.location.origin,
+        courseInstanceId,
+        assessments: rows.map((entry) => entry.assessment),
+      },
+    });
+    if (response?.ok) {
+      pinStates = Array.isArray(response?.data?.items) ? response.data.items : [];
+    }
+  } catch (error) {
+    console.warn("[PL Tracker] Failed to load pin states:", toErrorMessage(error));
+  }
+
+  rows.forEach((entry, index) => {
+    const initialPinned = Boolean(pinStates[index]?.pinned);
+    renderAssessmentPinButton(entry, initialPinned);
+  });
+}
+
+async function waitForAssessmentsTableBody(timeoutMs) {
+  const existing = document.querySelector('table[aria-label="Assessments"] tbody');
+  if (existing) {
+    return existing;
+  }
+
+  return new Promise((resolve) => {
+    const observer = new MutationObserver(() => {
+      const tableBody = document.querySelector('table[aria-label="Assessments"] tbody');
+      if (tableBody) {
+        observer.disconnect();
+        resolve(tableBody);
+      }
+    });
+
+    observer.observe(document.documentElement, { childList: true, subtree: true });
+    window.setTimeout(() => {
+      observer.disconnect();
+      resolve(document.querySelector('table[aria-label="Assessments"] tbody'));
+    }, timeoutMs);
+  });
+}
+
+function getCourseInstanceIdFromPath(path) {
+  if (typeof path !== "string") {
+    return null;
+  }
+
+  const match = path.match(/\/pl\/course_instance\/(\d+)\//);
+  return match?.[1] || null;
+}
+
+function collectAssessmentsForPinning(tbody, courseInstanceId) {
+  const rows = Array.from(tbody.querySelectorAll(":scope > tr"));
+  const entries = [];
+  let currentGroup = null;
+
+  for (const row of rows) {
+    const groupHeading = row.querySelector('[data-testid="assessment-group-heading"]');
+    if (groupHeading) {
+      currentGroup = normalizeWhitespace(groupHeading.textContent);
+      continue;
+    }
+
+    const badgeElement = row.querySelector('[data-testid="assessment-set-badge"]');
+    const cells = row.querySelectorAll("td");
+    if (!badgeElement || cells.length < 4) {
+      continue;
+    }
+
+    const titleCell = cells[1];
+    const linkElement = titleCell.querySelector("a");
+    const title = normalizeWhitespace(linkElement?.textContent || titleCell.textContent) || "Untitled";
+    const href = linkElement?.getAttribute("href") || null;
+    let absoluteUrl = null;
+    if (href) {
+      try {
+        absoluteUrl = new URL(href, window.location.origin).toString();
+      } catch {
+        absoluteUrl = null;
+      }
+    }
+    const badge = normalizeWhitespace(badgeElement.textContent) || null;
+
+    const availabilityCell = cells[2];
+    const availabilityText = normalizeWhitespace(availabilityCell.textContent) || null;
+    const popoverButton = availabilityCell.querySelector('button[data-bs-toggle="popover"]');
+    const accessWindows = parsePopoverAccessDetails(popoverButton);
+    const dueAt = getEffectiveDueTimestamp(accessWindows, availabilityText);
+
+    const scoreText = normalizeWhitespace(cells[3].textContent);
+    const isClosed =
+      /assessment closed/i.test(availabilityText || "") || /assessment closed/i.test(scoreText || "");
+
+    if (isClosed || isDueInPast(dueAt)) {
+      continue;
+    }
+
+    entries.push({
+      titleCell,
+      linkElement,
+      assessment: {
+        courseInstanceId,
+        group: currentGroup || null,
+        badge,
+        title,
+        href,
+        absoluteUrl,
+        dueAt,
+      },
+    });
+  }
+
+  return entries;
+}
+
+function renderAssessmentPinButton(entry, initiallyPinned) {
+  if (!entry?.titleCell || !entry.assessment) {
+    return;
+  }
+
+  let button = entry.titleCell.querySelector(`button.${ASSESSMENT_PIN_BUTTON_CLASS}`);
+  if (!button) {
+    button = document.createElement("button");
+    button.type = "button";
+    button.className = `btn btn-xs ms-2 ${ASSESSMENT_PIN_BUTTON_CLASS}`;
+
+    const anchorParent = entry.linkElement?.parentElement;
+    if (entry.linkElement && anchorParent === entry.titleCell) {
+      entry.linkElement.insertAdjacentElement("afterend", button);
+    } else {
+      entry.titleCell.appendChild(button);
+    }
+  }
+
+  updateAssessmentPinButton(button, initiallyPinned);
+
+  button.onclick = async (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (button.disabled) {
+      return;
+    }
+
+    button.disabled = true;
+    try {
+      const response = await sendMessageToBackground({
+        type: "PL_TOGGLE_ASSESSMENT_PIN",
+        payload: {
+          origin: window.location.origin,
+          assessment: entry.assessment,
+        },
+      });
+
+      if (!response?.ok) {
+        throw new Error(response?.error || "Failed to update pin status.");
+      }
+
+      updateAssessmentPinButton(button, Boolean(response.pinned));
+    } catch (error) {
+      console.warn("[PL Tracker] Failed to toggle assessment pin:", toErrorMessage(error));
+    } finally {
+      button.disabled = false;
+    }
+  };
+}
+
+function updateAssessmentPinButton(button, pinned) {
+  button.textContent = pinned ? "Unpin" : "Pin";
+  button.title = pinned ? "Remove from the tracker home card" : "Pin to the tracker home card";
+  button.classList.toggle("btn-warning", pinned);
+  button.classList.toggle("btn-outline-secondary", !pinned);
+}
+
+function buildPinToggleAssessmentPayload(item) {
+  if (!item || typeof item !== "object") {
+    return null;
+  }
+
+  const courseInstanceId = String(item.courseInstanceId || "").trim();
+  if (!/^\d+$/.test(courseInstanceId)) {
+    return null;
+  }
+
+  return {
+    courseInstanceId,
+    title: typeof item.title === "string" ? item.title : "",
+    badge: typeof item.badge === "string" ? item.badge : "",
+    group: typeof item.group === "string" ? item.group : "",
+    href: typeof item.href === "string" ? item.href : null,
+    absoluteUrl: typeof item.href === "string" ? item.href : null,
+    dueAt: typeof item.dueAt === "string" ? item.dueAt : null,
+  };
+}
+
+async function unpinFromHomePinnedTag(item) {
+  const assessmentPayload = buildPinToggleAssessmentPayload(item);
+  if (!assessmentPayload) {
+    throw new Error("Invalid pinned assessment payload.");
+  }
+
+  const response = await sendMessageToBackground({
+    type: "PL_TOGGLE_ASSESSMENT_PIN",
+    payload: {
+      origin: window.location.origin,
+      assessment: assessmentPayload,
+    },
+  });
+
+  if (!response?.ok) {
+    throw new Error(response?.error || "Failed to update pin status.");
+  }
+}
+
 function renderHomeUpcomingFromDashboard(dashboard) {
   const host = getHomeCardsHost();
   if (!host) {
@@ -177,14 +414,19 @@ function renderHomeUpcomingFromDashboard(dashboard) {
   }
 
   const filtered = getTwoWeekPendingAssessments(dashboard);
-  setHomeCardSubtitle(` `);
+  const pinnedVisibleCount = filtered.filter((item) => item?.isPinned).length;
+  const refreshedAt = dashboard?.meta?.lastRefreshAt || null;
+  const refreshedLabel = refreshedAt
+    ? `Updated ${formatHomeDueAt(refreshedAt)}`
+    : "Updated just now";
 
   body.innerHTML = "";
   if (!filtered.length) {
     const empty = document.createElement("p");
     empty.className = HOME_CARD_EMPTY_CLASS;
-    empty.textContent = "No incomplete assessments due in the next 2 weeks.";
+    empty.textContent = "No pinned or near-due incomplete assessments.";
     body.appendChild(empty);
+    setHomeCardSubtitle(refreshedLabel);
     return;
   }
 
@@ -212,6 +454,36 @@ function renderHomeUpcomingFromDashboard(dashboard) {
 
     const assessmentCell = document.createElement("td");
     assessmentCell.className = "align-middle";
+
+    if (item.isPinned) {
+      const pinnedBadge = document.createElement("button");
+      pinnedBadge.type = "button";
+      pinnedBadge.className = "badge bg-warning text-dark me-2 border-0";
+      pinnedBadge.textContent = "Pinned";
+      pinnedBadge.title = "Click to unpin";
+      pinnedBadge.style.cursor = "pointer";
+
+      pinnedBadge.addEventListener("click", async (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (pinnedBadge.disabled) {
+          return;
+        }
+
+        pinnedBadge.disabled = true;
+        setHomeCardSubtitle("Updating pin...");
+        try {
+          await unpinFromHomePinnedTag(item);
+          await loadAndRenderHomeUpcomingFromBackground();
+        } catch (error) {
+          setHomeCardSubtitle(`Unpin failed: ${toErrorMessage(error)}`);
+        } finally {
+          pinnedBadge.disabled = false;
+        }
+      });
+
+      assessmentCell.appendChild(pinnedBadge);
+    }
 
     if (item.badge) {
       const badge = document.createElement("span");
@@ -246,6 +518,9 @@ function renderHomeUpcomingFromDashboard(dashboard) {
   table.appendChild(tbody);
   tableResponsive.appendChild(table);
   body.appendChild(tableResponsive);
+  setHomeCardSubtitle(
+    ` `
+  );
 }
 
 function renderHomeUpcomingError(message) {
@@ -278,14 +553,45 @@ function getTwoWeekPendingAssessments(dashboard) {
   return upcoming
     .filter((item) => {
       const dueTime = Date.parse(item?.dueAt || "");
-      if (Number.isNaN(dueTime) || dueTime < now || dueTime > maxDue) {
-        return false;
+      const hasDue = !Number.isNaN(dueTime);
+
+      if (item?.isPinned) {
+        return !hasDue || dueTime >= now;
       }
 
       const scorePercent = parseScorePercent(item?.score);
-      return scorePercent === null || scorePercent < 100;
+      if (scorePercent !== null && scorePercent >= 100) {
+        return false;
+      }
+
+      if (!hasDue || dueTime < now || dueTime > maxDue) {
+        return false;
+      }
+
+      return true;
     })
-    .sort((a, b) => Date.parse(a.dueAt) - Date.parse(b.dueAt));
+    .sort((a, b) => {
+      if (Boolean(a?.isPinned) !== Boolean(b?.isPinned)) {
+        return a?.isPinned ? -1 : 1;
+      }
+
+      const aDue = Date.parse(a?.dueAt || "");
+      const bDue = Date.parse(b?.dueAt || "");
+      const aHasDue = !Number.isNaN(aDue);
+      const bHasDue = !Number.isNaN(bDue);
+
+      if (aHasDue && bHasDue && aDue !== bDue) {
+        return aDue - bDue;
+      }
+      if (aHasDue && !bHasDue) {
+        return -1;
+      }
+      if (!aHasDue && bHasDue) {
+        return 1;
+      }
+
+      return (a?.title || "").localeCompare(b?.title || "");
+    });
 }
 
 function formatHomeDueAt(iso) {
@@ -380,6 +686,19 @@ function parseScorePercent(score) {
 
   const value = Number.parseFloat(match[1]);
   return Number.isNaN(value) ? null : value;
+}
+
+function isDueInPast(dueAt) {
+  if (typeof dueAt !== "string" || !dueAt) {
+    return false;
+  }
+
+  const dueMs = Date.parse(dueAt);
+  if (Number.isNaN(dueMs)) {
+    return false;
+  }
+
+  return dueMs <= Date.now();
 }
 
 async function runRefreshInPageContext(payload) {
@@ -522,7 +841,7 @@ function parseAssessmentsDocument(doc, context) {
     const accessWindows = parsePopoverAccessDetails(popoverButton);
 
     const scoreCell = cells[3];
-    const score = normalizeWhitespace(scoreCell.querySelector(".progress-bar")?.textContent);
+    const score = extractScorePercentFromCell(scoreCell);
     const scoreText = normalizeWhitespace(scoreCell.textContent);
 
     let status = "unknown";
@@ -606,6 +925,83 @@ function parsePopoverAccessDetails(buttonElement) {
       endIso: parsePrairieLearnTimestamp(end),
     };
   });
+}
+
+function extractScorePercentFromCell(scoreCell) {
+  if (!scoreCell) {
+    return null;
+  }
+
+  const directPercent = findPercentString(scoreCell.querySelector(".progress-bar")?.textContent);
+  if (directPercent) {
+    return directPercent;
+  }
+
+  const ariaCandidates = [
+    scoreCell.querySelector(".progress-bar")?.getAttribute("aria-valuenow"),
+    scoreCell.querySelector(".progress")?.getAttribute("aria-valuenow"),
+  ];
+  for (const ariaValue of ariaCandidates) {
+    const normalized = normalizeNumericPercentString(ariaValue);
+    if (normalized) {
+      return normalized;
+    }
+  }
+
+  const styleCandidates = [
+    scoreCell.querySelector(".progress-bar")?.getAttribute("style"),
+    scoreCell.querySelector(".progress")?.getAttribute("style"),
+  ];
+  for (const styleValue of styleCandidates) {
+    const widthPercent = findPercentFromStyle(styleValue);
+    if (widthPercent) {
+      return widthPercent;
+    }
+  }
+
+  return findPercentString(scoreCell.textContent);
+}
+
+function findPercentFromStyle(styleText) {
+  if (typeof styleText !== "string" || !styleText.trim()) {
+    return null;
+  }
+
+  const match = styleText.match(/width\s*:\s*([+-]?\d+(?:\.\d+)?)\s*%/i);
+  if (!match) {
+    return null;
+  }
+
+  return normalizeNumericPercentString(match[1]);
+}
+
+function findPercentString(text) {
+  if (typeof text !== "string" || !text.trim()) {
+    return null;
+  }
+
+  const match = text.match(/([+-]?\d+(?:\.\d+)?)\s*%/);
+  if (!match) {
+    return null;
+  }
+
+  return normalizeNumericPercentString(match[1]);
+}
+
+function normalizeNumericPercentString(raw) {
+  if (typeof raw !== "string" || !raw.trim()) {
+    return null;
+  }
+
+  const value = Number.parseFloat(raw.trim());
+  if (!Number.isFinite(value)) {
+    return null;
+  }
+
+  const clamped = Math.min(Math.max(value, 0), 100);
+  const rounded = Math.round(clamped * 10) / 10;
+  const formatted = Number.isInteger(rounded) ? String(rounded) : String(rounded);
+  return `${formatted}%`;
 }
 
 function getEffectiveDueTimestamp(accessWindows, availabilityText) {
