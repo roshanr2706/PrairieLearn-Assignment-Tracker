@@ -6,6 +6,10 @@ Track upcoming PrairieLearn assessments directly on your PrairieLearn home page.
 
 ![PrairieLearn Tracker screenshot](Sample%20Screenshot.png)
 
+
+Chrome: https://chromewebstore.google.com/detail/prairielearn-tracker/pknbbjomfgmhgeapppniakidbcmephob?authuser=0&hl=en 
+Firefox: https://addons.mozilla.org/en-US/firefox/addon/prairielearn-tracker/ 
+
 ## What this extension does
 
 - Adds an **Upcoming** section above your **Courses** card on `https://*.prairielearn.com/`
@@ -42,3 +46,5 @@ Track upcoming PrairieLearn assessments directly on your PrairieLearn home page.
 - Data is stored locally in your browser (`chrome.storage.local`)
 - The extension only requests PrairieLearn domain access: `https://*.prairielearn.com/*`
 - No external server is required
+
+
