@@ -1,12 +1,24 @@
 const STORAGE_META_KEY = "pl.meta";
 const STORAGE_COURSE_PREFIX = "pl.course.";
 const STORAGE_PINNED_KEY = "pl.pinned_assessments";
+const STORAGE_V2_WELCOMED_KEY = "pl.v2.welcomed";
 const REFRESH_CONCURRENCY = 3;
 
-chrome.runtime.onInstalled.addListener(() => {
+chrome.runtime.onInstalled.addListener(async ({ reason }) => {
   ensureMetaInitialized().catch((error) => {
     console.error("Failed to initialize storage metadata:", error);
   });
+
+  if (reason === "install") {
+    await chrome.storage.local.set({ [STORAGE_V2_WELCOMED_KEY]: true });
+    chrome.tabs.create({ url: chrome.runtime.getURL("welcome/welcome.html") });
+  } else if (reason === "update") {
+    const result = await chrome.storage.local.get(STORAGE_V2_WELCOMED_KEY);
+    if (!result[STORAGE_V2_WELCOMED_KEY]) {
+      await chrome.storage.local.set({ [STORAGE_V2_WELCOMED_KEY]: true });
+      chrome.tabs.create({ url: chrome.runtime.getURL("welcome/welcome.html") });
+    }
+  }
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
