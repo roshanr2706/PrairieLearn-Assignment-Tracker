@@ -1,4 +1,4 @@
-# PrairieLearn Tracker (Chrome Extension)
+# PrairieLearn Tracker (Chrome / Firefox Extension)
 
 Track upcoming PrairieLearn assessments directly on your PrairieLearn home page.
 
