@@ -17,7 +17,8 @@
         "https://*.prairielearn.com/*"
       ],
       "js": [
-        "home-content.js"
+        "home-content.js",
+        "badge-override.js"
       ],
       "run_at": "document_idle"
     }

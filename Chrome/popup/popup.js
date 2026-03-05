@@ -1,9 +1,26 @@
 const refreshButton = document.getElementById("refreshBtn");
 const openHomeButton = document.getElementById("openHomeBtn");
+const optionsButton = document.getElementById("optionsBtn");
+const optionsPanel = document.getElementById("optionsPanel");
+const classicBadgesToggle = document.getElementById("classicBadgesToggle");
 const statusLine = document.getElementById("statusLine");
 const metaLine = document.getElementById("metaLine");
 const upcomingBody = document.getElementById("upcomingBody");
 const emptyState = document.getElementById("emptyState");
+
+const CLASSIC_BADGES_KEY = "pl.settings.classic_badges";
+
+chrome.storage.local.get(CLASSIC_BADGES_KEY, (result) => {
+  classicBadgesToggle.checked = !!result[CLASSIC_BADGES_KEY];
+});
+
+optionsButton.addEventListener("click", () => {
+  optionsPanel.classList.toggle("hidden");
+});
+
+classicBadgesToggle.addEventListener("change", (e) => {
+  chrome.storage.local.set({ [CLASSIC_BADGES_KEY]: e.target.checked });
+});
 
 let latestOrigin = null;
 
