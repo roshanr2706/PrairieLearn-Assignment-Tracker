@@ -41,6 +41,25 @@
         "prairietest-content.js"
       ],
       "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://*.prairielearn.com/pl/course_instance/*/assessment_instance/*"
+      ],
+      "js": [
+        "assessment-content.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://*.prairielearn.com/pl/course_instance/*/instance_question/*"
+      ],
+      "js": [
+        "libs/html2canvas.min.js",
+        "question-content.js"
+      ],
+      "run_at": "document_idle"
     }
   ],
   "action": {
