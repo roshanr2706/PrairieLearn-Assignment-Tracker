@@ -9,7 +9,8 @@
     "scripting"
   ],
   "host_permissions": [
-    "https://*.prairielearn.com/*"
+    "https://*.prairielearn.com/*",
+    "https://us.prairietest.com/*"
   ],
   "content_scripts": [
     {
@@ -19,6 +20,25 @@
       "js": [
         "home-content.js",
         "badge-override.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://*.prairielearn.com/pl/course_instance/*/gradebook"
+      ],
+      "js": [
+        "gradebook-content.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://us.prairietest.com/pt",
+        "https://us.prairietest.com/pt?*"
+      ],
+      "js": [
+        "prairietest-content.js"
       ],
       "run_at": "document_idle"
     }
