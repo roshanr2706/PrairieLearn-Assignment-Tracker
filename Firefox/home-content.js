@@ -247,8 +247,8 @@ async function refreshAndRenderHomeUpcoming() {
 } 
 
 async function initAssessmentsPinButtons() {
-  const tbody = await waitForAssessmentsTableBody(10000);
-  if (!tbody) {
+  const table = await waitForAssessmentsTable(10000);
+  if (!table) {
     return;
   }
 
@@ -257,7 +257,7 @@ async function initAssessmentsPinButtons() {
     return;
   }
 
-  const rows = collectAssessmentsForPinning(tbody, courseInstanceId);
+  const rows = collectAssessmentsForPinning(table, courseInstanceId);
   if (!rows.length) {
     return;
   }
@@ -285,25 +285,30 @@ async function initAssessmentsPinButtons() {
   });
 }
 
-async function waitForAssessmentsTableBody(timeoutMs) {
-  const existing = document.querySelector('table[aria-label="Assessments"] tbody');
+async function waitForAssessmentsTable(timeoutMs) {
+  // Wait on a tbody rather than the table so we only resolve once rows exist,
+  // but hand back the table: the rows are spread across one tbody per group.
+  const getTable = () =>
+    document.querySelector('table[aria-label="Assessments"] tbody')?.closest("table") || null;
+
+  const existing = getTable();
   if (existing) {
     return existing;
   }
 
   return new Promise((resolve) => {
     const observer = new MutationObserver(() => {
-      const tableBody = document.querySelector('table[aria-label="Assessments"] tbody');
-      if (tableBody) {
+      const table = getTable();
+      if (table) {
         observer.disconnect();
-        resolve(tableBody);
+        resolve(table);
       }
     });
 
     observer.observe(document.documentElement, { childList: true, subtree: true });
     window.setTimeout(() => {
       observer.disconnect();
-      resolve(document.querySelector('table[aria-label="Assessments"] tbody'));
+      resolve(getTable());
     }, timeoutMs);
   });
 }
@@ -317,8 +322,8 @@ function getCourseInstanceIdFromPath(path) {
   return match?.[1] || null;
 }
 
-function collectAssessmentsForPinning(tbody, courseInstanceId) {
-  const rows = Array.from(tbody.querySelectorAll(":scope > tr"));
+function collectAssessmentsForPinning(table, courseInstanceId) {
+  const rows = collectAssessmentTableRows(table);
   const entries = [];
   let currentGroup = null;
 
@@ -514,7 +519,7 @@ function renderHomeUpcomingFromDashboard(dashboard) {
   tableResponsive.className = "table-responsive";
 
   const table = document.createElement("table");
-  table.className = "table table-sm table-hover table-striped mb-0";
+  table.className = "table table-sm table-hover align-middle mb-0";
   table.setAttribute("aria-label", "Upcoming incomplete assessments");
 
   const thead = document.createElement("thead");
@@ -526,8 +531,15 @@ function renderHomeUpcomingFromDashboard(dashboard) {
     const row = document.createElement("tr");
 
     const courseCell = document.createElement("td");
-    courseCell.className = "align-middle";
-    courseCell.textContent = item.courseLabel || "Course";
+    courseCell.className = "align-middle text-nowrap";
+    const course = splitCourseLabel(item.courseLabel);
+    courseCell.textContent = course.name;
+    if (course.term) {
+      const term = document.createElement("div");
+      term.className = "small text-muted";
+      term.textContent = course.term;
+      courseCell.appendChild(term);
+    }
     row.appendChild(courseCell);
 
     const assessmentCell = document.createElement("td");
@@ -577,11 +589,28 @@ function renderHomeUpcomingFromDashboard(dashboard) {
       link.removeAttribute("href");
     }
     assessmentCell.appendChild(link);
+
+    if (item.group) {
+      const group = document.createElement("div");
+      group.className = "small text-muted";
+      group.textContent = item.group;
+      assessmentCell.appendChild(group);
+    }
+
     row.appendChild(assessmentCell);
 
     const dueCell = document.createElement("td");
     dueCell.className = "align-middle text-nowrap";
     dueCell.textContent = formatHomeDueAt(item.dueAt);
+
+    const relativeDue = formatHomeRelativeDue(item.dueAt);
+    if (relativeDue) {
+      const relative = document.createElement("div");
+      relative.className = "small text-muted";
+      relative.textContent = relativeDue;
+      dueCell.appendChild(relative);
+    }
+
     row.appendChild(dueCell);
 
     const progressCell = document.createElement("td");
@@ -685,6 +714,46 @@ function formatHomeDueAt(iso) {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+// "CPSC 313, 2026W1" repeated in full on every row is mostly noise, so the term
+// drops to a muted second line and the course code carries the row.
+function splitCourseLabel(label) {
+  const text = normalizeWhitespace(label) || "Course";
+  const separator = text.indexOf(",");
+  if (separator === -1) {
+    return { name: text, term: null };
+  }
+
+  return {
+    name: text.slice(0, separator).trim() || text,
+    term: text.slice(separator + 1).trim() || null,
+  };
+}
+
+function formatHomeRelativeDue(iso) {
+  const dueTime = Date.parse(iso || "");
+  if (Number.isNaN(dueTime)) {
+    return null;
+  }
+
+  const diffMs = dueTime - Date.now();
+  if (diffMs < 0) {
+    return "Overdue";
+  }
+
+  const minutes = Math.floor(diffMs / 60000);
+  if (minutes < 60) {
+    return `in ${Math.max(minutes, 1)} min`;
+  }
+
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) {
+    return `in ${hours} h`;
+  }
+
+  const days = Math.floor(hours / 24);
+  return days === 1 ? "in 1 day" : `in ${days} days`;
 }
 
 function renderHomeProgressBar(cell, item) {
@@ -879,9 +948,21 @@ async function fetchAndParseAssessments(origin, courseInstanceId) {
   return parsed;
 }
 
+// PrairieLearn renders a separate <tbody> for every assessment group, so
+// querySelector("tbody") only ever returns the first group. Walk them all and
+// keep document order so group headings still apply to the rows beneath them.
+function collectAssessmentTableRows(table) {
+  if (!table) {
+    return [];
+  }
+
+  const bodies = Array.from(table.querySelectorAll(":scope > tbody"));
+  return bodies.flatMap((body) => Array.from(body.querySelectorAll(":scope > tr")));
+}
+
 function parseAssessmentsDocument(doc, context) {
-  const tbody = doc.querySelector('table[aria-label="Assessments"] tbody');
-  if (!tbody) {
+  const table = doc.querySelector('table[aria-label="Assessments"]');
+  if (!table) {
     return null;
   }
 
@@ -892,7 +973,7 @@ function parseAssessmentsDocument(doc, context) {
   const assessments = [];
   let currentGroup = null;
 
-  const rows = Array.from(tbody.querySelectorAll(":scope > tr"));
+  const rows = collectAssessmentTableRows(table);
   for (const row of rows) {
     const groupHeading = row.querySelector('[data-testid="assessment-group-heading"]');
     if (groupHeading) {
@@ -1096,11 +1177,40 @@ function getEffectiveDueTimestamp(accessWindows, availabilityText) {
   return parseAvailabilityFallback(availabilityText);
 }
 
+// PrairieLearn stamps access windows with a timezone abbreviation, for example
+// "2026-09-24 23:59:59 (PDT)". Date.parse() ignores that label and reads the
+// value in whatever timezone the viewer happens to be in, which silently shifts
+// every deadline for anyone outside the course timezone. Offsets are in minutes
+// from UTC. Abbreviations that exist in more than one region resolve to their
+// North American reading, which is what PrairieLearn serves.
+const TIMEZONE_ABBREVIATION_OFFSETS = {
+  UTC: 0,
+  GMT: 0,
+  Z: 0,
+  NST: -210,
+  NDT: -150,
+  AST: -240,
+  ADT: -180,
+  EST: -300,
+  EDT: -240,
+  CST: -360,
+  CDT: -300,
+  MST: -420,
+  MDT: -360,
+  PST: -480,
+  PDT: -420,
+  AKST: -540,
+  AKDT: -480,
+  HST: -600,
+  HDT: -540,
+};
+
 function parsePrairieLearnTimestamp(raw) {
   if (typeof raw !== "string" || !raw.trim()) {
     return null;
   }
 
+  const tzLabel = raw.match(/\(([^)]+)\)\s*$/)?.[1] || null;
   const withoutTzLabel = raw.replace(/\s*\([^)]+\)\s*$/, "").trim();
   if (!withoutTzLabel) {
     return null;
@@ -1109,12 +1219,57 @@ function parsePrairieLearnTimestamp(raw) {
   let normalized = withoutTzLabel.replace(/\s+/, "T");
   normalized = normalized.replace(/([+-]\d{2})$/, "$1:00");
 
+  // An offset already baked into the stamp wins over the trailing label.
+  const offsetMinutes = /(?:Z|[+-]\d{2}:\d{2})$/.test(normalized)
+    ? null
+    : resolveTimezoneOffsetMinutes(tzLabel);
+  if (offsetMinutes !== null) {
+    normalized += formatUtcOffset(offsetMinutes);
+  }
+
   const time = Date.parse(normalized);
   if (!Number.isNaN(time)) {
     return new Date(time).toISOString();
   }
 
   return null;
+}
+
+// Returns minutes from UTC, or null when the label is missing or unrecognised.
+// Null means "fall back to local time", which keeps an unknown zone working the
+// way it always has instead of dropping the deadline entirely.
+function resolveTimezoneOffsetMinutes(label) {
+  if (typeof label !== "string" || !label.trim()) {
+    return null;
+  }
+
+  const trimmed = label.trim();
+  const named = TIMEZONE_ABBREVIATION_OFFSETS[trimmed.toUpperCase()];
+  if (typeof named === "number") {
+    return named;
+  }
+
+  // Also accept explicit forms such as "UTC-7", "GMT+5:30" or "+0530".
+  const numeric = trimmed.match(/^(?:UTC|GMT)?\s*([+-])(\d{1,2}):?(\d{2})?$/i);
+  if (!numeric) {
+    return null;
+  }
+
+  const hours = Number.parseInt(numeric[2], 10);
+  const minutes = numeric[3] ? Number.parseInt(numeric[3], 10) : 0;
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) {
+    return null;
+  }
+
+  return (numeric[1] === "-" ? -1 : 1) * (hours * 60 + minutes);
+}
+
+function formatUtcOffset(offsetMinutes) {
+  const sign = offsetMinutes < 0 ? "-" : "+";
+  const absolute = Math.abs(offsetMinutes);
+  const hours = String(Math.floor(absolute / 60)).padStart(2, "0");
+  const minutes = String(absolute % 60).padStart(2, "0");
+  return `${sign}${hours}:${minutes}`;
 }
 
 function parseAvailabilityFallback(text) {

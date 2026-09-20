@@ -15,8 +15,22 @@
         <div class="actions">
           <button id="refreshBtn" type="button" class="primary">Refresh</button>
           <button id="openHomeBtn" type="button" class="secondary">Open Home</button>
+          <button id="optionsBtn" type="button" class="secondary options-btn" title="Options">&#9881;</button>
         </div>
       </header>
+
+      <section id="optionsPanel" class="options-panel hidden">
+        <label class="toggle-row" for="classicBadgesToggle">
+          <span class="toggle-label">
+            <span class="toggle-title">Classic badge style</span>
+            <span class="toggle-desc">Restore the pre-2025 solid-color assessment badges on PrairieLearn pages</span>
+          </span>
+          <span class="toggle-track">
+            <input type="checkbox" id="classicBadgesToggle" />
+            <span class="toggle-thumb"></span>
+          </span>
+        </label>
+      </section>
 
       <section>
         <table class="upcoming" aria-label="Upcoming assessments">

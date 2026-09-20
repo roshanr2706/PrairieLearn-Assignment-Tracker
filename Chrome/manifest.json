@@ -1,15 +1,16 @@
 {
   "manifest_version": 3,
-  "name": "PrairieLearn Tracker",
+  "name": "Better PrairieLearn",
   "description": "Track upcoming PrairieLearn assessments across enrolled courses.",
-  "version": "1.0.6",
+  "version": "2.1.0",
   "permissions": [
     "storage",
     "tabs",
     "scripting"
   ],
   "host_permissions": [
-    "https://*.prairielearn.com/*"
+    "https://*.prairielearn.com/*",
+    "https://us.prairietest.com/*"
   ],
   "content_scripts": [
     {
@@ -17,7 +18,46 @@
         "https://*.prairielearn.com/*"
       ],
       "js": [
-        "home-content.js"
+        "home-content.js",
+        "badge-override.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://*.prairielearn.com/pl/course_instance/*/gradebook"
+      ],
+      "js": [
+        "gradebook-content.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://us.prairietest.com/pt",
+        "https://us.prairietest.com/pt?*"
+      ],
+      "js": [
+        "prairietest-content.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://*.prairielearn.com/pl/course_instance/*/assessment_instance/*"
+      ],
+      "js": [
+        "assessment-content.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://*.prairielearn.com/pl/course_instance/*/instance_question/*"
+      ],
+      "js": [
+        "libs/html2canvas.min.js",
+        "question-content.js"
       ],
       "run_at": "document_idle"
     }

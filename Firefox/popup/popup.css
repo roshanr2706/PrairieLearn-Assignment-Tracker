@@ -9,6 +9,10 @@
   --accent-strong: #1e40af;
   --accent-soft: #dbeafe;
   --warn: #92400e;
+  --row-hover: #f5f8fd;
+  --due-overdue: #b91c1c;
+  --due-urgent: #c2410c;
+  --due-soon: #a16207;
 }
 
 * {
@@ -109,10 +113,35 @@ button:disabled {
 .upcoming th,
 .upcoming td {
   border-bottom: 1px solid var(--border);
-  padding: 8px 10px;
-  vertical-align: top;
+  padding: 10px;
+  vertical-align: middle;
   text-align: left;
   font-size: 12px;
+}
+
+.upcoming tbody tr {
+  transition: background 0.12s ease;
+}
+
+.upcoming tbody tr:hover {
+  background: var(--row-hover);
+}
+
+/* Left accent stripe carries the urgency at a glance. */
+.upcoming tbody td:first-child {
+  border-left: 3px solid transparent;
+}
+
+.upcoming tbody tr.row-overdue td:first-child {
+  border-left-color: var(--due-overdue);
+}
+
+.upcoming tbody tr.row-urgent td:first-child {
+  border-left-color: var(--due-urgent);
+}
+
+.upcoming tbody tr.row-soon td:first-child {
+  border-left-color: var(--due-soon);
 }
 
 .upcoming th {
@@ -161,6 +190,37 @@ button:disabled {
   color: var(--muted);
   font-size: 11px;
 }
+
+.course-chip {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* Red sits last so a typical three-course list never picks it up: a red chip
+   next to the red overdue stripe reads as a warning it is not. */
+.course-chip.tone-0 { background: #e0e7ff; color: #3730a3; }
+.course-chip.tone-1 { background: #d1fae5; color: #065f46; }
+.course-chip.tone-2 { background: #cffafe; color: #155e75; }
+.course-chip.tone-3 { background: #f3e8ff; color: #6b21a8; }
+.course-chip.tone-4 { background: #fef3c7; color: #854d0e; }
+.course-chip.tone-5 { background: #fee2e2; color: #991b1b; }
+
+.due-absolute {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.due-relative {
+  font-weight: 600;
+}
+
+td.due-overdue .due-relative { color: var(--due-overdue); }
+td.due-urgent .due-relative { color: var(--due-urgent); }
+td.due-soon .due-relative { color: var(--due-soon); }
 
 .pl-progress {
   display: flex;
@@ -240,4 +300,85 @@ button:disabled {
 
 .hidden {
   display: none;
+}
+
+.options-btn {
+  margin-left: auto;
+  font-size: 15px;
+  padding: 8px 10px;
+}
+
+.options-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+
+.toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  cursor: pointer;
+}
+
+.toggle-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.toggle-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.toggle-desc {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.toggle-track {
+  position: relative;
+  flex-shrink: 0;
+  width: 36px;
+  height: 20px;
+}
+
+.toggle-track input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+  position: absolute;
+}
+
+.toggle-thumb {
+  position: absolute;
+  inset: 0;
+  background: var(--border);
+  border-radius: 999px;
+  transition: background 0.2s;
+}
+
+.toggle-thumb::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 14px;
+  height: 14px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform 0.2s;
+}
+
+.toggle-track input:checked + .toggle-thumb {
+  background: var(--accent);
+}
+
+.toggle-track input:checked + .toggle-thumb::after {
+  transform: translateX(16px);
 }
