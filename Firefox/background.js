@@ -396,9 +396,21 @@ async function fetchAndParseAssessments(origin, courseInstanceId) {
   return parsed;
 }
 
+// PrairieLearn renders a separate <tbody> for every assessment group, so
+// querySelector("tbody") only ever returns the first group. Walk them all and
+// keep document order so group headings still apply to the rows beneath them.
+function collectAssessmentTableRows(table) {
+  if (!table) {
+    return [];
+  }
+
+  const bodies = Array.from(table.querySelectorAll(":scope > tbody"));
+  return bodies.flatMap((body) => Array.from(body.querySelectorAll(":scope > tr")));
+}
+
 function parseAssessmentsDocument(doc, context) {
-  const tbody = doc.querySelector('table[aria-label="Assessments"] tbody');
-  if (!tbody) {
+  const table = doc.querySelector('table[aria-label="Assessments"]');
+  if (!table) {
     return null;
   }
 
@@ -409,7 +421,7 @@ function parseAssessmentsDocument(doc, context) {
   const assessments = [];
   let currentGroup = null;
 
-  const rows = Array.from(tbody.querySelectorAll(":scope > tr"));
+  const rows = collectAssessmentTableRows(table);
   for (const row of rows) {
     const groupHeading = row.querySelector('[data-testid="assessment-group-heading"]');
     if (groupHeading) {
@@ -493,12 +505,10 @@ function parsePopoverAccessDetails(buttonElement) {
     return [];
   }
 
-  const decodedHtml = decodeHtmlEntities(raw);
-  if (!decodedHtml) {
-    return [];
-  }
-
-  const popoverDoc = new DOMParser().parseFromString(decodedHtml, "text/html");
+  // getAttribute() already returns the decoded attribute value, so `raw` is
+  // parseable HTML. Running it through a text-extracting decoder would strip
+  // the <table> markup and leave no rows, losing every exact timestamp.
+  const popoverDoc = new DOMParser().parseFromString(raw, "text/html");
   const rows = Array.from(popoverDoc.querySelectorAll("tr")).slice(1);
   if (!rows.length) {
     return [];
@@ -614,11 +624,40 @@ function getEffectiveDueTimestamp(accessWindows, availabilityText) {
   return parseAvailabilityFallback(availabilityText);
 }
 
+// PrairieLearn stamps access windows with a timezone abbreviation, for example
+// "2026-09-24 23:59:59 (PDT)". Date.parse() ignores that label and reads the
+// value in whatever timezone the viewer happens to be in, which silently shifts
+// every deadline for anyone outside the course timezone. Offsets are in minutes
+// from UTC. Abbreviations that exist in more than one region resolve to their
+// North American reading, which is what PrairieLearn serves.
+const TIMEZONE_ABBREVIATION_OFFSETS = {
+  UTC: 0,
+  GMT: 0,
+  Z: 0,
+  NST: -210,
+  NDT: -150,
+  AST: -240,
+  ADT: -180,
+  EST: -300,
+  EDT: -240,
+  CST: -360,
+  CDT: -300,
+  MST: -420,
+  MDT: -360,
+  PST: -480,
+  PDT: -420,
+  AKST: -540,
+  AKDT: -480,
+  HST: -600,
+  HDT: -540,
+};
+
 function parsePrairieLearnTimestamp(raw) {
   if (typeof raw !== "string" || !raw.trim()) {
     return null;
   }
 
+  const tzLabel = raw.match(/\(([^)]+)\)\s*$/)?.[1] || null;
   const withoutTzLabel = raw.replace(/\s*\([^)]+\)\s*$/, "").trim();
   if (!withoutTzLabel) {
     return null;
@@ -627,12 +666,57 @@ function parsePrairieLearnTimestamp(raw) {
   let normalized = withoutTzLabel.replace(/\s+/, "T");
   normalized = normalized.replace(/([+-]\d{2})$/, "$1:00");
 
+  // An offset already baked into the stamp wins over the trailing label.
+  const offsetMinutes = /(?:Z|[+-]\d{2}:\d{2})$/.test(normalized)
+    ? null
+    : resolveTimezoneOffsetMinutes(tzLabel);
+  if (offsetMinutes !== null) {
+    normalized += formatUtcOffset(offsetMinutes);
+  }
+
   const time = Date.parse(normalized);
   if (!Number.isNaN(time)) {
     return new Date(time).toISOString();
   }
 
   return null;
+}
+
+// Returns minutes from UTC, or null when the label is missing or unrecognised.
+// Null means "fall back to local time", which keeps an unknown zone working the
+// way it always has instead of dropping the deadline entirely.
+function resolveTimezoneOffsetMinutes(label) {
+  if (typeof label !== "string" || !label.trim()) {
+    return null;
+  }
+
+  const trimmed = label.trim();
+  const named = TIMEZONE_ABBREVIATION_OFFSETS[trimmed.toUpperCase()];
+  if (typeof named === "number") {
+    return named;
+  }
+
+  // Also accept explicit forms such as "UTC-7", "GMT+5:30" or "+0530".
+  const numeric = trimmed.match(/^(?:UTC|GMT)?\s*([+-])(\d{1,2}):?(\d{2})?$/i);
+  if (!numeric) {
+    return null;
+  }
+
+  const hours = Number.parseInt(numeric[2], 10);
+  const minutes = numeric[3] ? Number.parseInt(numeric[3], 10) : 0;
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) {
+    return null;
+  }
+
+  return (numeric[1] === "-" ? -1 : 1) * (hours * 60 + minutes);
+}
+
+function formatUtcOffset(offsetMinutes) {
+  const sign = offsetMinutes < 0 ? "-" : "+";
+  const absolute = Math.abs(offsetMinutes);
+  const hours = String(Math.floor(absolute / 60)).padStart(2, "0");
+  const minutes = String(absolute % 60).padStart(2, "0");
+  return `${sign}${hours}:${minutes}`;
 }
 
 function parseAvailabilityFallback(text) {
@@ -691,15 +775,6 @@ function parseAvailabilityFallback(text) {
   }
 
   return candidate.toISOString();
-}
-
-function decodeHtmlEntities(value) {
-  if (typeof value !== "string" || !value) {
-    return "";
-  }
-
-  const doc = new DOMParser().parseFromString(`<!doctype html><body>${value}`, "text/html");
-  return doc.body?.textContent || "";
 }
 
 function extractCourseInstanceIdsFromHomeDocument(doc) {
