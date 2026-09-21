@@ -13,7 +13,7 @@ Firefox: https://addons.mozilla.org/en-US/firefox/addon/prairielearn-tracker/
 ## What this extension does
 
 - Adds an **Upcoming** section above your **Courses** card on `https://*.prairielearn.com/`
-- Shows incomplete assessments with an explicit **“until …” deadline** in the next **7 days**
+- Shows incomplete assessments with an explicit **“until …” deadline** in the next **14 days**
 - Excludes **“Available …”** rows because they are unpublished, not due dates
 - Lets you pin future deadline-bearing assessments from every group, including Preclass
 - Syncs every future published deadline to Google Calendar with the direct PrairieLearn link

@@ -66,7 +66,7 @@
     return item?.status !== "closed" && !/assessment closed/i.test(item?.availabilityText || "") && !/assessment closed/i.test(item?.scoreText || "");
   }
 
-  function selectUpcoming(items, now = Date.now(), horizonDays = 7) {
+  function selectUpcoming(items, now = Date.now(), horizonDays = 14) {
     const end = now + horizonDays * 24 * 60 * 60 * 1000;
     return (Array.isArray(items) ? items : [])
       .filter((item) => {
@@ -340,7 +340,7 @@
     return percent !== null && percent >= 100;
   }
 
-  function isAssessmentActiveOrDueSoon(item, now = Date.now(), horizonDays = 7) {
+  function isAssessmentActiveOrDueSoon(item, now = Date.now(), horizonDays = 14) {
     if (!item || typeof item !== "object") return true;
     const status = String(item.status || "").toLowerCase();
     const avail = String(item.availabilityText || "");
@@ -376,7 +376,7 @@
   function filterAssessmentItem(item, filters = {}, context = {}) {
     if (!item || typeof item !== "object") return true;
     const now = context.now || Date.now();
-    const horizonDays = context.horizonDays || 7;
+    const horizonDays = context.horizonDays || 14;
 
     if (filters.hideCompleted && isAssessment100PercentCompleted(item.score || item.scoreText)) {
       return false;

@@ -1150,7 +1150,7 @@ function renderHomeUpcomingFromDashboard(dashboard) {
     return;
   }
 
-  const filtered = getSevenDayPendingAssessments(dashboard);
+  const filtered = getTwoWeekPendingAssessments(dashboard);
   const pinnedVisibleCount = filtered.filter((item) => item?.isPinned).length;
   const refreshedAt = dashboard?.meta?.lastRefreshAt || null;
   const refreshedLabel = refreshedAt
@@ -1161,7 +1161,7 @@ function renderHomeUpcomingFromDashboard(dashboard) {
   if (!filtered.length) {
     const empty = document.createElement("p");
     empty.className = HOME_CARD_EMPTY_CLASS;
-    empty.textContent = "No pinned or near-due incomplete assessments.";
+    empty.textContent = "No pinned or incomplete assessments due in the next 14 days.";
     body.appendChild(empty);
     setHomeCardSubtitle(refreshedLabel);
     return;
@@ -1373,11 +1373,11 @@ function setHomeCardSubtitle(text) {
   }
 }
 
-function getSevenDayPendingAssessments(dashboard) {
+function getTwoWeekPendingAssessments(dashboard) {
   const upcoming = Array.isArray(dashboard?.upcoming) ? dashboard.upcoming : [];
   const now = Date.now();
-  const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
-  const maxDue = now + sevenDaysMs;
+  const twoWeeksMs = 14 * 24 * 60 * 60 * 1000;
+  const maxDue = now + twoWeeksMs;
 
   return upcoming
     .filter((item) => {
@@ -1423,6 +1423,8 @@ function getSevenDayPendingAssessments(dashboard) {
       return (a?.title || "").localeCompare(b?.title || "");
     });
 }
+
+const getSevenDayPendingAssessments = getTwoWeekPendingAssessments;
 
 function formatHomeDueAt(iso) {
   const date = new Date(iso);
@@ -2470,7 +2472,7 @@ function isAssessment100PercentCompleted(score) {
   return percent !== null && percent >= 100;
 }
 
-function isAssessmentActiveOrDueSoon(item, now = Date.now(), horizonDays = 7) {
+function isAssessmentActiveOrDueSoon(item, now = Date.now(), horizonDays = 14) {
   if (!item || typeof item !== "object") return true;
   const status = String(item.status || "").toLowerCase();
   const avail = String(item.availabilityText || "");
@@ -2507,7 +2509,7 @@ function matchesAssessmentSearch(item, query) {
 function filterAssessmentItem(item, filters = {}, context = {}) {
   if (!item || typeof item !== "object") return true;
   const now = context.now || Date.now();
-  const horizonDays = context.horizonDays || 7;
+  const horizonDays = context.horizonDays || 14;
 
   if (filters.hideCompleted && isAssessment100PercentCompleted(item.score || item.scoreText)) {
     return false;

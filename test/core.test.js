@@ -25,15 +25,17 @@ test("finite access window is a fallback", () => {
   assert.equal(result.deadlineAt, "2026-09-20T11:00:00.000Z");
 });
 
-test("upcoming uses seven days and keeps valid pins", () => {
+test("upcoming uses 14 days and keeps valid pins", () => {
   const items = [
     { courseInstanceId: "1", courseLabel: "CPSC 313", title: "P2", deadlineAt: "2026-09-14T11:00:00Z", deadlineSource: "visible_until", status: "not_started", score: "Not started", href: "/pl/a/2" },
+    { courseInstanceId: "1", courseLabel: "CPSC 313", title: "P3", deadlineAt: "2026-09-22T11:00:00Z", deadlineSource: "visible_until", status: "not_started", score: "Not started", href: "/pl/a/3" },
     { courseInstanceId: "1", courseLabel: "CPSC 313", title: "P8", deadlineAt: "2026-10-01T11:00:00Z", deadlineSource: "visible_until", status: "not_started", score: "Not started", href: "/pl/a/8", isPinned: true },
+    { courseInstanceId: "1", courseLabel: "CPSC 313", title: "P9_Far", deadlineAt: "2026-09-28T11:00:00Z", deadlineSource: "visible_until", status: "not_started", score: "Not started", href: "/pl/a/9_far" },
     { courseInstanceId: "1", courseLabel: "CPSC 313", title: "Available", availabilityText: "Available 08:00, Thu, Sep 17", status: "not_started", href: "/pl/a/9" },
     { courseInstanceId: "1", courseLabel: "CPSC 313", title: "Done", deadlineAt: "2026-09-12T11:00:00Z", deadlineSource: "visible_until", status: "scored", score: "100%", href: "/pl/a/10" },
   ];
-  assert.deepEqual(core.selectUpcoming(items, now).map((item) => item.title), ["P2", "P8"]);
-  assert.equal(core.selectCalendarItems(items, now).length, 3);
+  assert.deepEqual(core.selectUpcoming(items, now).map((item) => item.title), ["P2", "P3", "P8"]);
+  assert.equal(core.selectCalendarItems(items, now).length, 5);
 });
 
 test("calendar event and ICS preserve the direct link", async () => {
