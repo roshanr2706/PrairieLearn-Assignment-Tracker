@@ -7,7 +7,7 @@ Track published PrairieLearn assessment deadlines directly on your PrairieLearn 
 ![PrairieLearn Tracker screenshot](Sample%20Screenshot.png)
 
 
-Chrome: https://chromewebstore.google.com/detail/prairielearn-tracker/pknbbjomfgmhgeapppniakidbcmephob?authuser=0&hl=en 
+Chrome: https://chromewebstore.google.com/detail/prairielearn-tracker/pknbbjomfgmhgeapppniakidbcmephob
 Firefox: https://addons.mozilla.org/en-US/firefox/addon/prairielearn-tracker/ 
 
 ## What this extension does

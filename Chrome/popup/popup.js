@@ -1,11 +1,29 @@
 const refreshButton = document.getElementById("refreshBtn");
 const openHomeButton = document.getElementById("openHomeBtn");
+const optionsButton = document.getElementById("optionsBtn");
+const optionsPanel = document.getElementById("optionsPanel");
+const classicBadgesToggle = document.getElementById("classicBadgesToggle");
 const statusLine = document.getElementById("statusLine");
 const metaLine = document.getElementById("metaLine");
 const upcomingBody = document.getElementById("upcomingBody");
 const emptyState = document.getElementById("emptyState");
 const calendarButton = document.getElementById("calendarBtn");
 const icsButton = document.getElementById("icsBtn");
+
+const CLASSIC_BADGES_KEY = "pl.settings.classic_badges";
+const COURSE_TONE_COUNT = 6;
+
+chrome.storage.local.get(CLASSIC_BADGES_KEY, (result) => {
+  classicBadgesToggle.checked = !!result[CLASSIC_BADGES_KEY];
+});
+
+optionsButton.addEventListener("click", () => {
+  optionsPanel.classList.toggle("hidden");
+});
+
+classicBadgesToggle.addEventListener("change", (e) => {
+  chrome.storage.local.set({ [CLASSIC_BADGES_KEY]: e.target.checked });
+});
 
 let latestOrigin = null;
 
@@ -106,9 +124,22 @@ async function loadDashboard() {
   }
 }
 
+// PrairieLearn only publishes an access window while an assessment is open, so
+// a parsed dueAt is what separates real deadlines from "not open yet" and
+// already-finished rows. The home card keeps the wider list for pinned items.
+function isOpenWithDeadline(item) {
+  const dueTime = Date.parse(item?.dueAt || "");
+  if (Number.isNaN(dueTime)) {
+    return false;
+  }
+
+  return dueTime >= Date.now();
+}
+
 function renderDashboard(data) {
   const meta = data?.meta || null;
-  const upcoming = Array.isArray(data?.upcoming) ? data.upcoming : [];
+  const allItems = Array.isArray(data?.upcoming) ? data.upcoming : [];
+  const upcoming = allItems.filter(isOpenWithDeadline);
   const stats = data?.stats || { courseSnapshots: 0, assessments: 0, upcoming: 0 };
 
   latestOrigin = typeof meta?.origin === "string" ? meta.origin : null;
@@ -125,22 +156,30 @@ function renderDashboard(data) {
 
   const courseCount = stats.courseSnapshots || 0;
   const totalAssessments = stats.assessments || 0;
-  const upcomingCount = stats.upcoming || 0;
+  const upcomingCount = upcoming.length;
   metaLine.textContent = `${courseCount} courses synced, ${totalAssessments} assessments parsed, ${upcomingCount} upcoming`;
 
   upcomingBody.innerHTML = "";
   if (!upcoming.length) {
     emptyState.textContent = meta?.origin
-      ? "No upcoming assessments found. Try refreshing after visiting your course pages."
+      ? "Nothing open with a deadline right now. Assessments appear here once PrairieLearn opens them."
       : "No PrairieLearn data found yet. Open PrairieLearn home page and click Refresh.";
     emptyState.classList.remove("hidden");
     return;
   }
 
   emptyState.classList.add("hidden");
+  const courseTones = buildCourseToneMap(upcoming);
   for (const item of upcoming) {
     const row = document.createElement("tr");
-    row.appendChild(renderCourseCell(item, badgeColorOverridesCache));
+    const dueTime = Date.parse(item.dueAt || "");
+    if (!Number.isNaN(dueTime)) {
+      const urgency = dueUrgency(dueTime);
+      if (urgency !== "none" && urgency !== "later") {
+        row.className = `row-${urgency}`;
+      }
+    }
+    row.appendChild(renderCourseCell(item, courseTones, badgeColorOverridesCache));
     row.appendChild(renderAssessmentCell(item, badgeColorOverridesCache));
     row.appendChild(renderDueCell(item));
     row.appendChild(renderStatusCell(item));
@@ -462,9 +501,15 @@ if (typeof chrome !== "undefined" && chrome.storage?.onChanged) {
   });
 }
 
-function renderCourseCell(item, overrides = badgeColorOverridesCache) {
+function renderCourseCell(item, courseTones, overrides = badgeColorOverridesCache) {
   const cell = document.createElement("td");
-  cell.textContent = item.courseLabel || "Course";
+  const label = item.courseLabel || "Course";
+
+  const chip = document.createElement("span");
+  chip.className = `course-chip tone-${courseTones?.get?.(label) ?? 0}`;
+  chip.textContent = label;
+  cell.appendChild(chip);
+
   if (item.isPrairieTest) {
     const examBadge = document.createElement("span");
     examBadge.className = "badge-exam";
@@ -473,6 +518,19 @@ function renderCourseCell(item, overrides = badgeColorOverridesCache) {
     cell.appendChild(examBadge);
   }
   return cell;
+}
+
+// Hand out chip colours by sorted course name rather than by hashing the label.
+// Hashing collided in practice (CPSC 313 and CPSC 320 landed on the same tone),
+// and sorting keeps a course on one colour as long as the course list holds.
+function buildCourseToneMap(items) {
+  const labels = [...new Set(items.map((item) => item.courseLabel || "Course"))].sort();
+
+  const tones = new Map();
+  labels.forEach((label, index) => {
+    tones.set(label, index % COURSE_TONE_COUNT);
+  });
+  return tones;
 }
 
 function renderAssessmentCell(item, overrides = badgeColorOverridesCache) {
@@ -526,21 +584,79 @@ function renderAssessmentCell(item, overrides = badgeColorOverridesCache) {
 
 function renderDueCell(item) {
   const cell = document.createElement("td");
-  cell.textContent = item.dueAt ? formatDateTime(item.dueAt) : "No due date";
+  const dueTime = Date.parse(item.dueAt || "");
 
-  if (item.isPrairieTest && item.durationMinutes) {
-    const sub = document.createElement("span");
-    sub.className = "sub";
-    sub.textContent = `${item.durationMinutes} min session`;
-    cell.appendChild(sub);
-  } else if (!item.dueAt && item.availabilityText) {
-    const sub = document.createElement("span");
-    sub.className = "sub";
-    sub.textContent = item.availabilityText;
-    cell.appendChild(sub);
+  if (Number.isNaN(dueTime)) {
+    cell.textContent = "No due date";
+    if (item.isPrairieTest && item.durationMinutes) {
+      const sub = document.createElement("span");
+      sub.className = "sub";
+      sub.textContent = `${item.durationMinutes} min session`;
+      cell.appendChild(sub);
+    } else if (item.availabilityText) {
+      const sub = document.createElement("span");
+      sub.className = "sub";
+      sub.textContent = item.availabilityText;
+      cell.appendChild(sub);
+    }
+    return cell;
   }
 
+  cell.classList.add(`due-${dueUrgency(dueTime)}`);
+
+  const absolute = document.createElement("span");
+  absolute.className = "due-absolute";
+  absolute.textContent = formatDateTime(item.dueAt);
+  cell.appendChild(absolute);
+
+  const relative = document.createElement("span");
+  relative.className = "sub due-relative";
+  if (item.isPrairieTest && item.durationMinutes) {
+    relative.textContent = `${formatRelativeDue(dueTime)} · ${item.durationMinutes} min`;
+  } else {
+    relative.textContent = formatRelativeDue(dueTime);
+  }
+  cell.appendChild(relative);
+
   return cell;
+}
+
+function dueUrgency(dueTime) {
+  if (Number.isNaN(dueTime)) {
+    return "none";
+  }
+
+  const hoursAway = (dueTime - Date.now()) / 3600000;
+  if (hoursAway < 0) {
+    return "overdue";
+  }
+  if (hoursAway <= 24) {
+    return "urgent";
+  }
+  if (hoursAway <= 72) {
+    return "soon";
+  }
+  return "later";
+}
+
+function formatRelativeDue(dueTime) {
+  const diffMs = dueTime - Date.now();
+  if (diffMs < 0) {
+    return "Overdue";
+  }
+
+  const minutes = Math.floor(diffMs / 60000);
+  if (minutes < 60) {
+    return `in ${Math.max(minutes, 1)} min`;
+  }
+
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) {
+    return `in ${hours} h`;
+  }
+
+  const days = Math.floor(hours / 24);
+  return days === 1 ? "in 1 day" : `in ${days} days`;
 }
 
 function renderStatusCell(item) {

@@ -3,13 +3,13 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>PrairieLearn Tracker</title>
+    <title>Better PrairieLearn</title>
     <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
     <main class="app">
       <header class="header">
-        <h1>PrairieLearn Tracker</h1>
+        <h1>Better PrairieLearn</h1>
         <p id="statusLine" class="status">Loading dashboard...</p>
         <p id="metaLine" class="meta"></p>
         <div class="actions">
@@ -25,6 +25,7 @@
             </select>
             <button id="icsBtn" type="button" class="secondary">Download .ics</button>
           </div>
+          <button id="optionsBtn" type="button" class="secondary options-btn" title="Options">&#9881;</button>
         </div>
       </header>
 
@@ -36,6 +37,19 @@
         </div>
         <button id="ptAlertBtn" type="button" class="btn-alert">Reserve Now</button>
       </div>
+
+      <section id="optionsPanel" class="options-panel hidden">
+        <label class="toggle-row" for="classicBadgesToggle">
+          <span class="toggle-label">
+            <span class="toggle-title">Classic badge style</span>
+            <span class="toggle-desc">Restore the pre-2025 solid-color assessment badges on PrairieLearn pages</span>
+          </span>
+          <span class="toggle-track">
+            <input type="checkbox" id="classicBadgesToggle" />
+            <span class="toggle-thumb"></span>
+          </span>
+        </label>
+      </section>
 
       <section>
         <table class="upcoming" aria-label="Upcoming assessments">
