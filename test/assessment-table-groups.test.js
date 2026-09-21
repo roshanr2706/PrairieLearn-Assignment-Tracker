@@ -30,10 +30,10 @@ for (const file of ROW_SCAN_FILES) {
 
 test("home-content.js appends the empty-state row after the last group", () => {
   const source = fs.readFileSync("Chrome/home-content.js", "utf8");
-  assert.match(source, /getLastAssessmentTableBody\(tbody\)[\s\S]{0,20}appendChild\(zeroRow\)/);
+  assert.match(source, /getLastAssessmentTableBody\((?:table|tbody)\)[\s\S]{0,100}appendChild\(zeroRow\)/);
 });
 
 test("the filter observer watches the whole table", () => {
   const source = fs.readFileSync("Chrome/home-content.js", "utf8");
-  assert.match(source, /observer\.observe\(\s*getAssessmentsTableFrom\(tbody\)/);
+  assert.match(source, /observer\.observe\(\s*(?:table|getAssessmentsTableFrom\((?:table|tbody)\))/);
 });

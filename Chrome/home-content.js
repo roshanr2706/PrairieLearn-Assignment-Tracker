@@ -962,9 +962,9 @@ function getLastAssessmentTableBody(node) {
   return bodies.length ? bodies[bodies.length - 1] : null;
 }
 
-function collectAssessmentsForPinning(tbody, courseInstanceId) {
-  const rows = collectAssessmentTableRows(tbody);
-  const columns = resolveAssessmentColumns(tbody);
+function collectAssessmentsForPinning(tableNode, courseInstanceId) {
+  const rows = collectAssessmentTableRows(tableNode);
+  const columns = resolveAssessmentColumns(tableNode);
   const entries = [];
   let currentGroup = null;
 
@@ -2714,8 +2714,8 @@ async function initCourseAssessmentsFilterToolbar() {
   const storageKey = `pl_filter_pref_${window.location.origin}_${courseInstanceId}`;
 
   function parseRows() {
-    const trs = collectAssessmentTableRows(tbody);
-    const columns = resolveAssessmentColumns(tbody);
+    const trs = collectAssessmentTableRows(table);
+    const columns = resolveAssessmentColumns(table);
     const groups = [];
     let currentGroup = { headingRow: null, heading: null, items: [] };
 
@@ -2843,7 +2843,7 @@ async function initCourseAssessmentsFilterToolbar() {
         td.innerHTML =
           'No assessments match the selected filters. <button type="button" class="btn btn-link btn-sm p-0 ms-2" id="pl-filter-inline-reset">Reset filters</button>';
         zeroRow.appendChild(td);
-        (getLastAssessmentTableBody(tbody) || tbody).appendChild(zeroRow);
+        (getLastAssessmentTableBody(table) || table.querySelector("tbody") || table).appendChild(zeroRow);
         const inlineReset = zeroRow.querySelector("#pl-filter-inline-reset");
         if (inlineReset) {
           inlineReset.addEventListener("click", () => {
@@ -2977,7 +2977,7 @@ async function initCourseAssessmentsFilterToolbar() {
       updateSummary();
     }, 150);
   });
-  observer.observe(getAssessmentsTableFrom(tbody) || tbody, {
+  observer.observe(table, {
     childList: true,
     subtree: true,
     attributes: true,
@@ -3003,5 +3003,6 @@ if (typeof window !== "undefined") {
     getBadgePrefix,
     applyBadgeStyle,
     PL_BADGE_PALETTES,
+    initCourseAssessmentsFilterToolbar,
   };
 }

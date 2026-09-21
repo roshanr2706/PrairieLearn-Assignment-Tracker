@@ -314,3 +314,40 @@ test("prairietest: injectSingleReservationActions injects dropdown into reservat
   assert.ok(dropdownMenu.textContent.includes("Sync Google Calendar"));
 });
 
+test("prairietest: injectPrairieTestPageUi maps rows by reservation/exam target without index drift", () => {
+  const html = `
+    <main id="content">
+      <div class="card">
+        <div class="card-header"><h2>Exam reservations</h2></div>
+        <ul class="list-group">
+          <li class="list-group-item non-reservation-notice">Notice: Please arrive 10 minutes early.</li>
+          <li class="list-group-item" id="res-row-1">
+            <div class="row">
+              <div class="col" data-testid="exam"><a href="/pt/student/reservation/999">CPSC 313: Midterm 1</a></div>
+              <div class="col" data-testid="date"><span data-format-date='{"date":"2026-10-10T18:00:00.000Z"}'>Oct 10, 2026</span></div>
+            </div>
+          </li>
+        </ul>
+      </div>
+    </main>
+  `;
+  const dom = new JSDOM(html, { url: "https://us.prairietest.com/pt" });
+  const doc = dom.window.document;
+
+  const reservations = [
+    {
+      id: "999",
+      title: "CPSC 313: Midterm 1",
+      startDate: "2026-10-10T18:00:00.000Z",
+    },
+  ];
+
+  ptRuntime.injectPrairieTestPageUi(doc, { reservations, unreservedExams: [], origin: "https://us.prairietest.com" });
+
+  const noticeRow = doc.querySelector(".non-reservation-notice");
+  assert.equal(noticeRow.querySelector(".pl-pt-row-calendar-btn"), null, "notice row must not have calendar action");
+
+  const reservationRow = doc.getElementById("res-row-1");
+  assert.ok(reservationRow.querySelector(".pl-pt-row-calendar-btn"), "matched reservation row must have calendar action");
+});
+

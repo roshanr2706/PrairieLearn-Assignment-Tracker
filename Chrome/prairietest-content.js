@@ -1013,9 +1013,77 @@
   }
 
   // Main initializer
+  function findReservationForItem(item, reservations, origin) {
+    const examEl = item.querySelector('[data-testid="exam"]');
+    const examLink = examEl?.querySelector("a") || item.querySelector("a[href*='/reservation/']");
+    const href = examLink?.getAttribute("href") || "";
+    const idMatch = href.match(/\/reservation\/(\d+)/);
+    const id = idMatch ? idMatch[1] : null;
+
+    if (id && Array.isArray(reservations)) {
+      const match = reservations.find((r) => r.id === id);
+      if (match) return match;
+    }
+    return parseReservationItem(item, origin);
+  }
+
+  function findUnreservedExamForItem(item, unreservedExams, origin) {
+    const link = item.querySelector('a[href*="/exam/"], a[href*="/reservation/"], [data-testid="exam"] a') || item.querySelector("a");
+    const href = link?.getAttribute("href") || "";
+    if (href && Array.isArray(unreservedExams)) {
+      const match = unreservedExams.find((u) => u.reserveUrl && u.reserveUrl.includes(href));
+      if (match) return match;
+    }
+    return parseUnreservedItem(item, origin);
+  }
+
+  function injectPrairieTestPageUi(doc, options = {}) {
+    const origin = options.origin || (typeof window !== "undefined" && window.location.origin) || "https://us.prairietest.com";
+    const reservations = options.reservations || [];
+    const unreservedExams = options.unreservedExams || [];
+
+    const mainContainer = doc.querySelector("main#content") || doc.querySelector("main, .container") || doc.body;
+    if (unreservedExams.length > 0 && mainContainer) {
+      injectUnreservedWarningBanner(mainContainer, unreservedExams);
+    }
+
+    const cards = Array.from(doc.querySelectorAll(".card"));
+    for (const card of cards) {
+      const heading = normalizeWhitespace(card.querySelector(".card-header h2, .card-header")?.textContent || "").toLowerCase();
+
+      if (heading.includes("exam reservations")) {
+        injectReservationsCardActions(card, reservations);
+
+        const items = Array.from(card.querySelectorAll("ul.list-group > li.list-group-item"));
+        for (const item of items) {
+          const res = findReservationForItem(item, reservations, origin);
+          if (res) {
+            injectReservationRowActions(item, res);
+          }
+        }
+      } else if (heading.includes("exams available for reservations")) {
+        const items = Array.from(card.querySelectorAll("ul.list-group > li.list-group-item"));
+        for (const item of items) {
+          const unres = findUnreservedExamForItem(item, unreservedExams, origin);
+          if (unres && !item.querySelector(".pl-pt-unreserved-badge")) {
+            const badge = doc.createElement("span");
+            badge.className = "badge bg-danger ms-2 pl-pt-unreserved-badge";
+            badge.textContent = unres.reserveDeadlineFormatted
+              ? `Reserve by: ${unres.reserveDeadlineFormatted}`
+              : "Not Reserved";
+            const target = item.querySelector('[data-testid="exam"], strong, a') || item;
+            target.appendChild(badge);
+          }
+        }
+      }
+    }
+  }
+
   async function runPrairieTestTracker() {
-    const origin = (typeof window !== "undefined" && window.location.origin) || "https://us.prairietest.com";
-    const pathname = (typeof window !== "undefined" && window.location.pathname) || "/pt";
+    if (typeof window === "undefined" || !document) return;
+
+    const origin = window.location.origin || "https://us.prairietest.com";
+    const pathname = window.location.pathname || "/";
 
     // Handle single reservation detail page
     if (/\/reservation\/\d+/i.test(pathname)) {
@@ -1068,41 +1136,7 @@
     }
 
     // Inject UI elements
-    const mainContainer = document.querySelector("main#content") || document.querySelector("main, .container") || document.body;
-
-    if (unreservedExams.length > 0 && mainContainer) {
-      injectUnreservedWarningBanner(mainContainer, unreservedExams);
-    }
-
-    const cards = Array.from(document.querySelectorAll(".card"));
-    for (const card of cards) {
-      const heading = normalizeWhitespace(card.querySelector(".card-header h2, .card-header")?.textContent || "").toLowerCase();
-
-      if (heading.includes("exam reservations")) {
-        injectReservationsCardActions(card, reservations);
-
-        const items = Array.from(card.querySelectorAll("ul.list-group > li.list-group-item"));
-        for (let i = 0; i < items.length; i++) {
-          if (reservations[i]) {
-            injectReservationRowActions(items[i], reservations[i]);
-          }
-        }
-      } else if (heading.includes("exams available for reservations")) {
-        // Highlight unreserved rows with badges if any
-        const items = Array.from(card.querySelectorAll("ul.list-group > li.list-group-item"));
-        for (let i = 0; i < items.length; i++) {
-          if (unreservedExams[i] && !items[i].querySelector(".pl-pt-unreserved-badge")) {
-            const badge = document.createElement("span");
-            badge.className = "badge bg-danger ms-2 pl-pt-unreserved-badge";
-            badge.textContent = unreservedExams[i].reserveDeadlineFormatted
-              ? `Reserve by: ${unreservedExams[i].reserveDeadlineFormatted}`
-              : "Not Reserved";
-            const target = items[i].querySelector('[data-testid="exam"], strong, a') || items[i];
-            target.appendChild(badge);
-          }
-        }
-      }
-    }
+    injectPrairieTestPageUi(document, { reservations, unreservedExams, origin });
   }
 
   // Export runtime helpers for testing under node / jsdom
@@ -1110,6 +1144,8 @@
     parsePrairieTestDocument,
     parseReservationItem,
     parseUnreservedItem,
+    findReservationForItem,
+    findUnreservedExamForItem,
     parseSingleReservationPage,
     calculateReservationDeadline,
     formatDeadlineFriendly,
@@ -1120,6 +1156,7 @@
     injectReservationRowActions,
     injectSingleReservationActions,
     injectUnreservedWarningBanner,
+    injectPrairieTestPageUi,
   };
 
   if (typeof window !== "undefined") {
