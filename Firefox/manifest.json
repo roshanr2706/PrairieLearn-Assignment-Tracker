@@ -34,8 +34,7 @@
     },
     {
       "matches": [
-        "https://us.prairietest.com/pt",
-        "https://us.prairietest.com/pt?*"
+        "https://us.prairietest.com/*"
       ],
       "js": [
         "prairietest-content.js"

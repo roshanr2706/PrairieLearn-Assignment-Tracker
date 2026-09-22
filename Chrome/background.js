@@ -2,6 +2,9 @@ const STORAGE_META_KEY = "pl.meta";
 const STORAGE_COURSE_PREFIX = "pl.course.";
 const STORAGE_PINNED_KEY = "pl.pinned_assessments";
 const STORAGE_V2_WELCOMED_KEY = "pl.v2.welcomed";
+const STORAGE_PRAIRIETEST_RESERVATIONS_KEY = "pl.prairietest.reservations";
+const STORAGE_PRAIRIETEST_UNRESERVED_KEY = "pl.prairietest.unreserved";
+const STORAGE_PRAIRIETEST_META_KEY = "pl.prairietest.meta";
 const REFRESH_CONCURRENCY = 3;
 
 // A Chrome MV3 service worker has no DOMParser, so it loads the shared parser
@@ -66,6 +69,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (message.type === "PL_TOGGLE_ASSESSMENT_PIN") {
         const result = await toggleAssessmentPin(message.payload);
         sendResponse({ ok: true, ...result });
+        return;
+      }
+
+      if (message.type === "PT_DATA_DISCOVERED") {
+        const result = await handlePrairieTestDataDiscovered(message.payload || {}, sender);
+        sendResponse({ ok: true, ...result });
+        return;
+      }
+
+      if (message.type === "PT_GET_DATA") {
+        const data = await getPrairieTestData();
+        sendResponse({ ok: true, data });
         return;
       }
 
@@ -761,6 +776,115 @@ function normalizeIsoTimestamp(value) {
   return new Date(time).toISOString();
 }
 
+// --- PrairieTest exam reservations -------------------------------------------
+//
+// prairietest-content.js parses the PrairieTest pages (it holds the DOM there)
+// and posts the results here. We only store them, drive the toolbar badge, and
+// surface them in the dashboard; no network or OAuth happens for PrairieTest.
+
+async function handlePrairieTestDataDiscovered(payload, sender) {
+  const origin = payload?.origin || getSenderOrigin(sender) || "https://us.prairietest.com";
+  const reservations = Array.isArray(payload?.reservations) ? payload.reservations : [];
+  const unreservedExams = Array.isArray(payload?.unreservedExams) ? payload.unreservedExams : [];
+  const capturedAt = payload?.capturedAt || new Date().toISOString();
+
+  // A single reservation-detail page reports just its own reservation, so merge
+  // it into the stored list instead of replacing the whole set.
+  if (payload?.isSingleReservation && reservations.length === 1) {
+    const current = await getPrairieTestData();
+    const existing = current.reservations || [];
+    const newRes = reservations[0];
+    const index = existing.findIndex(
+      (r) => (newRes.id && r.id === newRes.id) || (newRes.absoluteUrl && r.absoluteUrl === newRes.absoluteUrl)
+    );
+    let updated;
+    if (index >= 0) {
+      updated = [...existing];
+      updated[index] = { ...existing[index], ...newRes };
+    } else {
+      updated = [newRes, ...existing];
+    }
+    await chrome.storage.local.set({
+      [STORAGE_PRAIRIETEST_RESERVATIONS_KEY]: updated,
+      [STORAGE_PRAIRIETEST_META_KEY]: {
+        ...(current.meta || {}),
+        origin,
+        lastCapturedAt: capturedAt,
+        reservationCount: updated.length,
+      },
+    });
+    return { reservationCount: updated.length, unreservedCount: current.unreservedExams.length };
+  }
+
+  await chrome.storage.local.set({
+    [STORAGE_PRAIRIETEST_RESERVATIONS_KEY]: reservations,
+    [STORAGE_PRAIRIETEST_UNRESERVED_KEY]: unreservedExams,
+    [STORAGE_PRAIRIETEST_META_KEY]: {
+      origin,
+      lastCapturedAt: capturedAt,
+      reservationCount: reservations.length,
+      unreservedCount: unreservedExams.length,
+    },
+  });
+
+  await updateExtensionBadge(unreservedExams.length);
+  return { reservationCount: reservations.length, unreservedCount: unreservedExams.length };
+}
+
+// Render an exam length as "2h", "1h 30m" or "45m" for the dashboard, rather
+// than collapsing everything to minutes ("120m"), which hid the hours.
+function formatExamDurationLabel(totalMinutes) {
+  const minutes = Number.isFinite(totalMinutes) ? Math.max(0, Math.round(totalMinutes)) : 60;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  if (hours && rest) {
+    return `${hours}h ${rest}m`;
+  }
+  if (hours) {
+    return `${hours}h`;
+  }
+  return `${rest}m`;
+}
+
+async function getPrairieTestData() {
+  const all = await chrome.storage.local.get([
+    STORAGE_PRAIRIETEST_RESERVATIONS_KEY,
+    STORAGE_PRAIRIETEST_UNRESERVED_KEY,
+    STORAGE_PRAIRIETEST_META_KEY,
+  ]);
+  return {
+    reservations: Array.isArray(all[STORAGE_PRAIRIETEST_RESERVATIONS_KEY])
+      ? all[STORAGE_PRAIRIETEST_RESERVATIONS_KEY]
+      : [],
+    unreservedExams: Array.isArray(all[STORAGE_PRAIRIETEST_UNRESERVED_KEY])
+      ? all[STORAGE_PRAIRIETEST_UNRESERVED_KEY]
+      : [],
+    meta: all[STORAGE_PRAIRIETEST_META_KEY] || null,
+  };
+}
+
+async function updateExtensionBadge(unreservedCount) {
+  if (!chrome?.action?.setBadgeText) {
+    return;
+  }
+  if (unreservedCount > 0) {
+    await chrome.action.setBadgeText({ text: "!" });
+    if (chrome.action.setBadgeBackgroundColor) {
+      await chrome.action.setBadgeBackgroundColor({ color: "#dc3545" });
+    }
+    if (chrome.action.setTitle) {
+      await chrome.action.setTitle({
+        title: `PrairieLearn Tracker: ${unreservedCount} unreserved PrairieTest exam${unreservedCount > 1 ? "s" : ""}!`,
+      });
+    }
+  } else {
+    await chrome.action.setBadgeText({ text: "" });
+    if (chrome.action.setTitle) {
+      await chrome.action.setTitle({ title: "PrairieLearn Tracker" });
+    }
+  }
+}
+
 async function buildDashboardData() {
   const all = await chrome.storage.local.get(null);
   const meta = all[STORAGE_META_KEY] || null;
@@ -848,6 +972,43 @@ async function buildDashboardData() {
     await chrome.storage.local.set({ [STORAGE_PINNED_KEY]: pinnedById });
   }
 
+  // PrairieTest reservations live in their own storage keys (populated by
+  // prairietest-content.js). Surface the still-upcoming ones alongside the
+  // assessment deadlines so the popup shows a single unified list.
+  const ptReservations = Array.isArray(all[STORAGE_PRAIRIETEST_RESERVATIONS_KEY])
+    ? all[STORAGE_PRAIRIETEST_RESERVATIONS_KEY]
+    : [];
+  const ptUnreserved = Array.isArray(all[STORAGE_PRAIRIETEST_UNRESERVED_KEY])
+    ? all[STORAGE_PRAIRIETEST_UNRESERVED_KEY]
+    : [];
+  const ptMeta = all[STORAGE_PRAIRIETEST_META_KEY] || null;
+
+  for (const res of ptReservations) {
+    const startTime = Date.parse(res?.startDate);
+    if (Number.isNaN(startTime) || startTime <= nowMs) {
+      continue;
+    }
+    upcoming.push({
+      courseInstanceId: res.courseInstanceId || "prairietest",
+      courseLabel: res.courseLabel || "PrairieTest",
+      group: "PrairieTest Exam Reservations",
+      badge: "Exam",
+      title: res.examTitle || res.title || "Exam Reservation",
+      href: res.absoluteUrl || res.href || null,
+      dueAt: res.startDate,
+      startDate: res.startDate,
+      endDate: res.endDate,
+      durationMinutes: res.durationMinutes || 60,
+      location: res.location || "",
+      sessionDetails: res.sessionDetails || "",
+      status: "reserved",
+      score: `${formatExamDurationLabel(res.durationMinutes || 60)} In-person`,
+      isPrairieTest: true,
+      id: res.id,
+      capturedAt: res.capturedAt || ptMeta?.lastCapturedAt || null,
+    });
+  }
+
   upcoming.sort(compareUpcomingAssessments);
 
   return {
@@ -857,8 +1018,13 @@ async function buildDashboardData() {
       assessments: assessmentCount,
       upcoming: upcoming.length,
       pinned: pinnedCount,
+      prairietestReservations: ptReservations.length,
+      prairietestUnreserved: ptUnreserved.length,
     },
     upcoming,
+    prairietestReservations: ptReservations,
+    prairietestUnreserved: ptUnreserved,
+    prairietestMeta: ptMeta,
   };
 }
 
