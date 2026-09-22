@@ -58,6 +58,7 @@
   },
   "background": {
     "scripts": [
+      "parsing.js",
       "background.js"
     ]
   },
