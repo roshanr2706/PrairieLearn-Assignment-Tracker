@@ -19,6 +19,7 @@ if (isPrairieLearnHomePage()) {
 
 if (isAssessmentsPage()) {
   void initAssessmentsPinButtons();
+  void initCourseAssessmentsFilterToolbar();
 }
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -1441,4 +1442,339 @@ async function mapWithConcurrency(items, concurrency, worker) {
 
   await Promise.all(runners);
   return results;
+}
+
+function isAssessment100PercentCompleted(score) {
+  const percent = parseScorePercent(score);
+  return percent !== null && percent >= 100;
+}
+
+function isAssessmentActiveOrDueSoon(item, now = Date.now(), horizonDays = 14) {
+  if (!item || typeof item !== "object") return true;
+  const status = String(item.status || "").toLowerCase();
+  const avail = String(item.availabilityText || "");
+  const score = String(item.scoreText || item.score || "");
+  if (status === "closed" || /assessment closed/i.test(avail) || /assessment closed/i.test(score)) {
+    return false;
+  }
+  const deadline = item.dueAt || item.deadlineAt;
+  if (deadline) {
+    const due = Date.parse(deadline);
+    if (Number.isNaN(due)) return true;
+    if (due <= now) return false;
+    return due <= now + horizonDays * 24 * 60 * 60 * 1000;
+  }
+  if (/^Available\b/i.test(avail)) {
+    return false;
+  }
+  return true;
+}
+
+function matchesAssessmentSearch(item, query) {
+  const q = normalizeWhitespace(query).toLowerCase();
+  if (!q) return true;
+  const parts = [
+    item?.title,
+    item?.badge,
+    item?.group,
+    item?.searchableText,
+    item?.availabilityText,
+  ].filter(Boolean).map((s) => String(s).toLowerCase());
+  return parts.some((p) => p.includes(q));
+}
+
+function filterAssessmentItem(item, filters = {}, context = {}) {
+  if (!item || typeof item !== "object") return true;
+  const now = context.now || Date.now();
+  const horizonDays = context.horizonDays || 14;
+
+  if (filters.hideCompleted && isAssessment100PercentCompleted(item.score || item.scoreText)) {
+    return false;
+  }
+  if (filters.onlyActiveDueSoon && !isAssessmentActiveOrDueSoon(item, now, horizonDays)) {
+    return false;
+  }
+  if (filters.query && !matchesAssessmentSearch(item, filters.query)) {
+    return false;
+  }
+  return true;
+}
+
+async function initCourseAssessmentsFilterToolbar() {
+  const table = await waitForAssessmentsTable(10000);
+  if (!table) return;
+
+  const courseInstanceId = getCourseInstanceIdFromPath(window.location.pathname);
+  if (!courseInstanceId) return;
+
+  if (document.getElementById("pl-assessment-filter-toolbar")) return;
+
+  const targetContainer =
+    table.parentElement && table.parentElement.classList.contains("table-responsive")
+      ? table.parentElement
+      : table;
+
+  const toolbar = document.createElement("div");
+  toolbar.id = "pl-assessment-filter-toolbar";
+  toolbar.className = "card mb-3 p-3 bg-light border";
+  toolbar.innerHTML = `
+    <div class="row g-2 align-items-center">
+      <div class="col-12 col-md-5">
+        <div class="input-group input-group-sm">
+          <span class="input-group-text" id="pl-filter-search-label">🔍</span>
+          <input type="search" class="form-control" id="pl-filter-search" placeholder="Search assessments..." aria-label="Search assessments" aria-describedby="pl-filter-search-label">
+        </div>
+      </div>
+      <div class="col-auto">
+        <div class="form-check form-switch mb-0">
+          <input class="form-check-input" type="checkbox" id="pl-filter-hide-completed">
+          <label class="form-check-label small" for="pl-filter-hide-completed">Hide 100% Completed</label>
+        </div>
+      </div>
+      <div class="col-auto">
+        <div class="form-check form-switch mb-0">
+          <input class="form-check-input" type="checkbox" id="pl-filter-due-soon">
+          <label class="form-check-label small" for="pl-filter-due-soon">Only Active / Due Soon</label>
+        </div>
+      </div>
+      <div class="col-auto ms-auto d-flex align-items-center gap-2">
+        <span id="pl-filter-count" class="text-muted small" aria-live="polite"></span>
+        <button type="button" class="btn btn-sm btn-outline-secondary" id="pl-filter-reset">Reset</button>
+      </div>
+    </div>
+  `;
+
+  if (targetContainer.parentElement) {
+    targetContainer.parentElement.insertBefore(toolbar, targetContainer);
+  }
+
+  const searchInput = toolbar.querySelector("#pl-filter-search");
+  const hideCompletedCheckbox = toolbar.querySelector("#pl-filter-hide-completed");
+  const dueSoonCheckbox = toolbar.querySelector("#pl-filter-due-soon");
+  const countSpan = toolbar.querySelector("#pl-filter-count");
+  const resetBtn = toolbar.querySelector("#pl-filter-reset");
+
+  const storageKey = `pl_filter_pref_${window.location.origin}_${courseInstanceId}`;
+
+  function parseRows() {
+    const trs = collectAssessmentTableRows(table);
+    const groups = [];
+    let currentGroup = { headingRow: null, heading: null, items: [] };
+
+    for (const tr of trs) {
+      if (tr.id === "pl-filter-zero-row") continue;
+      const groupHeading = tr.querySelector('[data-testid="assessment-group-heading"]');
+      if (groupHeading) {
+        currentGroup = {
+          headingRow: tr,
+          heading: normalizeWhitespace(groupHeading.textContent),
+          items: [],
+        };
+        groups.push(currentGroup);
+        continue;
+      }
+
+      const cells = tr.querySelectorAll("td");
+      if (!cells.length) {
+        currentGroup.items.push({
+          row: tr,
+          item: { isUnknown: true, searchableText: normalizeWhitespace(tr.textContent) },
+        });
+        continue;
+      }
+
+      const badgeElement = tr.querySelector('[data-testid="assessment-set-badge"]');
+      const titleCell = cells[1];
+      const linkElement = titleCell ? titleCell.querySelector("a") : null;
+      const title = normalizeWhitespace(linkElement?.textContent || titleCell?.textContent) || "Untitled";
+      const href = linkElement?.getAttribute("href") || null;
+      const badge = normalizeWhitespace(badgeElement?.textContent) || null;
+      const availabilityCell = cells[2];
+      const availabilityText = normalizeWhitespace(availabilityCell?.textContent) || null;
+      const popoverButton = availabilityCell ? availabilityCell.querySelector('button[data-bs-toggle="popover"]') : null;
+      const accessWindows = parsePopoverAccessDetails(popoverButton);
+      const dueAt = getEffectiveDueTimestamp(accessWindows, availabilityText);
+      const scoreCell = cells[3];
+      const score = extractScorePercentFromCell(scoreCell);
+      const scoreText = normalizeWhitespace(scoreCell?.textContent);
+      const isClosed =
+        /assessment closed/i.test(availabilityText || "") || /assessment closed/i.test(scoreText || "");
+
+      currentGroup.items.push({
+        row: tr,
+        item: {
+          courseInstanceId,
+          group: currentGroup.heading,
+          badge,
+          title,
+          href,
+          availabilityText,
+          score,
+          scoreText,
+          dueAt,
+          status: isClosed ? "closed" : "open",
+          searchableText: normalizeWhitespace(tr.textContent),
+        },
+      });
+    }
+
+    if (groups.length === 0 && currentGroup.items.length > 0) {
+      groups.push(currentGroup);
+    }
+    return groups;
+  }
+
+  function applyFilters() {
+    const query = searchInput ? searchInput.value : "";
+    const hideCompleted = hideCompletedCheckbox ? hideCompletedCheckbox.checked : false;
+    const onlyActiveDueSoon = dueSoonCheckbox ? dueSoonCheckbox.checked : false;
+    const groups = parseRows();
+
+    let totalAssessments = 0;
+    let visibleAssessments = 0;
+
+    for (const group of groups) {
+      let groupVisibleCount = 0;
+      for (const entry of group.items) {
+        totalAssessments += 1;
+        let isVisible = true;
+        if (entry.item.isUnknown) {
+          isVisible = true;
+        } else {
+          isVisible = filterAssessmentItem(entry.item, { query, hideCompleted, onlyActiveDueSoon });
+        }
+
+        if (isVisible) {
+          groupVisibleCount += 1;
+          visibleAssessments += 1;
+          entry.row.hidden = false;
+          entry.row.removeAttribute("aria-hidden");
+        } else {
+          entry.row.hidden = true;
+          entry.row.setAttribute("aria-hidden", "true");
+        }
+      }
+
+      if (group.headingRow) {
+        if (groupVisibleCount === 0 && group.items.length > 0) {
+          group.headingRow.hidden = true;
+          group.headingRow.setAttribute("aria-hidden", "true");
+        } else {
+          group.headingRow.hidden = false;
+          group.headingRow.removeAttribute("aria-hidden");
+        }
+      }
+    }
+
+    if (countSpan) {
+      countSpan.textContent = `Showing ${visibleAssessments} of ${totalAssessments} assessments`;
+    }
+
+    let zeroRow = document.getElementById("pl-filter-zero-row");
+    if (visibleAssessments === 0 && totalAssessments > 0) {
+      if (!zeroRow) {
+        zeroRow = document.createElement("tr");
+        zeroRow.id = "pl-filter-zero-row";
+        zeroRow.className = "text-center py-4";
+        const td = document.createElement("td");
+        td.colSpan = 100;
+        td.className = "text-muted p-4";
+        td.innerHTML =
+          'No assessments match the selected filters. <button type="button" class="btn btn-link btn-sm p-0 ms-2" id="pl-filter-inline-reset">Reset filters</button>';
+        zeroRow.appendChild(td);
+        const bodies = Array.from(table.querySelectorAll(":scope > tbody"));
+        const lastBody = bodies.length > 0 ? bodies[bodies.length - 1] : table;
+        lastBody.appendChild(zeroRow);
+        const inlineReset = zeroRow.querySelector("#pl-filter-inline-reset");
+        if (inlineReset) {
+          inlineReset.addEventListener("click", () => {
+            resetFilters();
+          });
+        }
+      }
+      zeroRow.hidden = false;
+    } else if (zeroRow) {
+      zeroRow.hidden = true;
+    }
+  }
+
+  function saveFilterPreferences() {
+    if (!chrome?.storage?.local) return;
+    chrome.storage.local.set({
+      [storageKey]: {
+        hideCompleted: hideCompletedCheckbox?.checked || false,
+        onlyActiveDueSoon: dueSoonCheckbox?.checked || false,
+      },
+    });
+  }
+
+  function resetFilters() {
+    if (searchInput) searchInput.value = "";
+    if (hideCompletedCheckbox) hideCompletedCheckbox.checked = false;
+    if (dueSoonCheckbox) dueSoonCheckbox.checked = false;
+    applyFilters();
+    saveFilterPreferences();
+  }
+
+  if (searchInput) {
+    searchInput.addEventListener("input", applyFilters);
+    searchInput.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        searchInput.value = "";
+        applyFilters();
+      }
+    });
+  }
+
+  if (hideCompletedCheckbox) {
+    hideCompletedCheckbox.addEventListener("change", () => {
+      applyFilters();
+      saveFilterPreferences();
+    });
+  }
+
+  if (dueSoonCheckbox) {
+    dueSoonCheckbox.addEventListener("change", () => {
+      applyFilters();
+      saveFilterPreferences();
+    });
+  }
+
+  if (resetBtn) {
+    resetBtn.addEventListener("click", resetFilters);
+  }
+
+  if (chrome?.storage?.local) {
+    chrome.storage.local.get([storageKey], (res) => {
+      const pref = res?.[storageKey] || {};
+      if (pref.hideCompleted && hideCompletedCheckbox) hideCompletedCheckbox.checked = true;
+      if (pref.onlyActiveDueSoon && dueSoonCheckbox) dueSoonCheckbox.checked = true;
+      applyFilters();
+    });
+  } else {
+    applyFilters();
+  }
+
+  let debounceTimer = null;
+  const observer = new MutationObserver((mutations) => {
+    const isInternal = mutations.every((m) => {
+      return (
+        m.target.id === "pl-filter-zero-row" ||
+        (m.target.closest && m.target.closest("#pl-assessment-filter-toolbar")) ||
+        (m.type === "attributes" && (m.attributeName === "hidden" || m.attributeName === "aria-hidden"))
+      );
+    });
+    if (isInternal) return;
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => {
+      applyFilters();
+    }, 150);
+  });
+  observer.observe(table, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ["class", "style"],
+  });
+  window.addEventListener("beforeunload", () => observer.disconnect(), { once: true });
 }
