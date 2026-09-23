@@ -44,10 +44,43 @@ refreshButton.addEventListener("click", async () => {
   }
 });
 
+const icsButton = document.getElementById("icsBtn");
+
 openHomeButton.addEventListener("click", () => {
   const origin = latestOrigin || "https://us.prairielearn.com";
   chrome.tabs.create({ url: `${origin}/` });
 });
+
+if (icsButton) {
+  icsButton.addEventListener("click", async () => {
+    icsButton.disabled = true;
+    const icsScopeSelect = document.getElementById("icsScopeSelect");
+    const scope = icsScopeSelect?.value || "all";
+    const scopeLabel = scope === "week" ? "next 7 days" : "all future";
+    statusLine.textContent = `Preparing ${scopeLabel} calendar file...`;
+    try {
+      const response = await sendMessage({
+        type: "PL_EXPORT_CALENDAR_ICS",
+        payload: { scope },
+      });
+      if (!response?.ok || typeof response.ics !== "string") {
+        throw new Error(response?.error || "Calendar file export failed.");
+      }
+      const blobUrl = URL.createObjectURL(new Blob([response.ics], { type: "text/calendar;charset=utf-8" }));
+      const link = document.createElement("a");
+      link.href = blobUrl;
+      link.download = response.filename || "prairielearn-deadlines.ics";
+      link.click();
+      URL.revokeObjectURL(blobUrl);
+      const countMsg = response.count ? ` (${response.count} deadline${response.count === 1 ? "" : "s"})` : "";
+      statusLine.textContent = `Calendar file downloaded${countMsg}. Import it into your calendar app.`;
+    } catch (error) {
+      statusLine.textContent = `Calendar export failed: ${toErrorMessage(error)}`;
+    } finally {
+      icsButton.disabled = false;
+    }
+  });
+}
 
 void loadDashboard();
 
