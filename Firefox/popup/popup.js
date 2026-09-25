@@ -7,6 +7,7 @@ const statusLine = document.getElementById("statusLine");
 const metaLine = document.getElementById("metaLine");
 const upcomingBody = document.getElementById("upcomingBody");
 const emptyState = document.getElementById("emptyState");
+const unreservedPanel = document.getElementById("unreservedPanel");
 
 const CLASSIC_BADGES_KEY = "pl.settings.classic_badges";
 const COURSE_TONE_COUNT = 6;
@@ -102,6 +103,8 @@ function renderDashboard(data) {
   const upcomingCount = upcoming.length;
   metaLine.textContent = `${courseCount} courses synced, ${totalAssessments} assessments parsed, ${upcomingCount} upcoming`;
 
+  renderUnreservedPanel(data);
+
   upcomingBody.innerHTML = "";
   if (!upcoming.length) {
     emptyState.textContent = meta?.origin
@@ -122,6 +125,57 @@ function renderDashboard(data) {
     row.appendChild(renderStatusCell(item));
     upcomingBody.appendChild(row);
   }
+}
+
+// PrairieTest exams that still need a reservation drive the toolbar "!" badge,
+// but the badge alone gave no way to see which exams. Surface them here so the
+// popup explains the badge and links straight to the reservation page.
+function renderUnreservedPanel(data) {
+  if (!unreservedPanel) {
+    return;
+  }
+
+  const items = Array.isArray(data?.prairietestUnreserved) ? data.prairietestUnreserved : [];
+  unreservedPanel.innerHTML = "";
+  if (!items.length) {
+    unreservedPanel.classList.add("hidden");
+    return;
+  }
+
+  const title = document.createElement("p");
+  title.className = "unreserved-title";
+  const count = items.length;
+  title.textContent = `${count} PrairieTest exam${count > 1 ? "s" : ""} need a reservation`;
+  unreservedPanel.appendChild(title);
+
+  const list = document.createElement("ul");
+  list.className = "unreserved-list";
+  for (const item of items) {
+    const row = document.createElement("li");
+    const label = item.title || item.examTitle || "Exam";
+
+    if (item.reserveUrl) {
+      const link = document.createElement("a");
+      link.href = item.reserveUrl;
+      link.target = "_blank";
+      link.rel = "noreferrer";
+      link.textContent = label;
+      row.appendChild(link);
+    } else {
+      row.appendChild(document.createTextNode(label));
+    }
+
+    if (item.reserveDeadlineFormatted) {
+      const deadline = document.createElement("span");
+      deadline.className = "unreserved-deadline";
+      deadline.textContent = `Reserve by ${item.reserveDeadlineFormatted}`;
+      row.appendChild(deadline);
+    }
+
+    list.appendChild(row);
+  }
+  unreservedPanel.appendChild(list);
+  unreservedPanel.classList.remove("hidden");
 }
 
 function renderCourseCell(item, courseTones) {
@@ -293,7 +347,9 @@ function renderStatusCell(item) {
   remainder.className = "pl-progress-remainder";
   remainder.style.width = `${100 - fillPercent}%`;
   if (percent === null) {
-    remainder.textContent = statusToLabel(item.status);
+    // A non-percent score (e.g. a PrairieTest exam's "1h 15m In-person") should
+    // still show, matching the home card, rather than collapsing to a status.
+    remainder.textContent = item.score ? item.score : statusToLabel(item.status);
   } else if (label && fillPercent < 15) {
     remainder.textContent = label;
   }

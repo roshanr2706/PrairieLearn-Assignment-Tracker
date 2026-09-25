@@ -7,7 +7,6 @@
   --muted: #8b949e;
   --accent: #2563eb;
   --accent-hover: #1d4ed8;
-  --v2-green: #059669;
 }
 
 * {
@@ -64,17 +63,6 @@ h1 {
   font-size: 28px;
   font-weight: 700;
   color: var(--text);
-}
-
-.v2-badge {
-  background: var(--v2-green);
-  color: #fff;
-  font-size: 11px;
-  font-weight: 700;
-  padding: 3px 8px;
-  border-radius: 999px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
 }
 
 .subtitle {
@@ -184,10 +172,4 @@ h1 {
 
 .btn-primary:hover {
   background: var(--accent-hover);
-}
-
-.formerly {
-  font-size: 0.75rem;
-  color: #888;
-  margin-top: -0.25rem;
 }

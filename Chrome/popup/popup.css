@@ -302,6 +302,48 @@ td.due-soon .due-relative { color: var(--due-soon); }
   display: none;
 }
 
+.unreserved-panel {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 10px;
+  padding: 10px 14px;
+}
+
+.unreserved-title {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--due-overdue);
+}
+
+.unreserved-list {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+}
+
+.unreserved-list li {
+  font-size: 12px;
+  color: var(--text);
+}
+
+.unreserved-list a {
+  color: var(--accent-strong);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.unreserved-list a:hover {
+  text-decoration: underline;
+}
+
+.unreserved-deadline {
+  margin-left: 6px;
+  color: var(--due-overdue);
+  font-size: 11px;
+}
+
 .options-btn {
   margin-left: auto;
   font-size: 15px;

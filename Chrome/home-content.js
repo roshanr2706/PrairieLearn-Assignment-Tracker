@@ -202,7 +202,14 @@ function createHomeUpcomingCard() {
     }
   });
 
+  // Status line: "Updated ...", "Refreshing...", and any refresh/unpin error.
+  // Without this element every setHomeCardSubtitle() call was a silent no-op.
+  const subtitle = document.createElement("span");
+  subtitle.id = HOME_CARD_SUBTITLE_ID;
+  subtitle.className = "ms-3 small text-white-50";
+
   header.appendChild(title);
+  header.appendChild(subtitle);
   header.appendChild(refreshButton);
   card.appendChild(header);
 
@@ -626,9 +633,7 @@ function renderHomeUpcomingFromDashboard(dashboard) {
   table.appendChild(tbody);
   tableResponsive.appendChild(table);
   body.appendChild(tableResponsive);
-  setHomeCardSubtitle(
-    ` `
-  );
+  setHomeCardSubtitle(refreshedLabel);
 }
 
 function renderHomeUpcomingError(message) {
