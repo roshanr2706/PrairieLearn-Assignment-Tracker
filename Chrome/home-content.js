@@ -1462,17 +1462,11 @@ function isAssessmentActiveOrDueSoon(item, now = Date.now(), horizonDays = 14) {
   if (status === "closed" || /assessment closed/i.test(avail) || /assessment closed/i.test(score)) {
     return false;
   }
-  const deadline = item.dueAt || item.deadlineAt;
-  if (deadline) {
-    const due = Date.parse(deadline);
-    if (Number.isNaN(due)) return true;
-    if (due <= now) return false;
-    return due <= now + horizonDays * 24 * 60 * 60 * 1000;
-  }
-  if (/^Available\b/i.test(avail)) {
-    return false;
-  }
-  return true;
+  // No deadline means nothing is due: either the credit window is over (PL
+  // leaves the cell blank) or the assessment hasn't opened yet.
+  const due = Date.parse(item.dueAt || item.deadlineAt || "");
+  if (Number.isNaN(due) || due <= now) return false;
+  return due <= now + horizonDays * 24 * 60 * 60 * 1000;
 }
 
 function matchesAssessmentSearch(item, query) {

@@ -129,8 +129,9 @@ test("isAssessmentActiveOrDueSoon accurately classifies active and upcoming asse
   };
   assert.equal(isAssessmentActiveOrDueSoon(futureAvailable, now), false);
 
-  // 6. Unknown / indeterminate row -> fails open (returns true)
-  assert.equal(isAssessmentActiveOrDueSoon({}, now), true);
+  // 6. No deadline (credit window over, PL leaves the cell blank) -> not due soon
+  assert.equal(isAssessmentActiveOrDueSoon({ availabilityText: "", status: "open" }, now), false);
+  assert.equal(isAssessmentActiveOrDueSoon({}, now), false);
   assert.equal(isAssessmentActiveOrDueSoon(null, now), true);
 });
 
