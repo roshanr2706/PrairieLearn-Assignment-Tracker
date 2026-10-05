@@ -373,7 +373,9 @@
     const table = document.querySelector('table[aria-label="Gradebook"]');
     if (!table) return;
 
-    const tbody = table.querySelector('tbody');
+    // PrairieLearn renders one <tbody> per section, so walk every one of them;
+    // table.querySelector('tbody') would only ever see the first section.
+    const rows = () => table.querySelectorAll(':scope > tbody > tr');
     let currentSectionName = null;
     const sectionLastRows = {};
 
@@ -381,7 +383,7 @@
     // Badge text is like "P2", "LC1", "HW3" — we extract the letter prefix
     // so missing badges like "P7" match the color of existing "P2".
     const badgeColorMap = {};
-    for (const row of tbody.querySelectorAll('tr')) {
+    for (const row of rows()) {
       const cells = row.querySelectorAll('td');
       if (cells.length < 3) continue;
       const badgeEl = cells[0].querySelector('span.badge');
@@ -394,7 +396,7 @@
       }
     }
 
-    for (const row of tbody.querySelectorAll('tr')) {
+    for (const row of rows()) {
       const header = row.querySelector('th[colspan]');
       if (header) {
         currentSectionName = header.textContent.trim();
@@ -483,11 +485,13 @@
       let insertAfter = sectionLastRows[sectionName];
 
       if (!insertAfter) {
-        // Create a new section header row
+        // Create a new section in its own <tbody>, matching PrairieLearn's markup
+        const newSectionBody = document.createElement('tbody');
+        newSectionBody.className = 'plgc-missing-section';
         const newHeaderRow = document.createElement('tr');
-        newHeaderRow.className = 'plgc-missing-section-header';
         const th = document.createElement('th');
-        th.setAttribute('colspan', '10');
+        th.setAttribute('colspan', '3');
+        th.setAttribute('scope', 'rowgroup');
         th.textContent = sectionName;
         th.dataset.plgcSection = sectionName;
 
@@ -520,7 +524,8 @@
         });
 
         newHeaderRow.appendChild(th);
-        tbody.appendChild(newHeaderRow);
+        newSectionBody.appendChild(newHeaderRow);
+        table.appendChild(newSectionBody);
         insertAfter = newHeaderRow;
       }
 
@@ -573,11 +578,7 @@
         tr.appendChild(td1);
         tr.appendChild(td2);
 
-        if (insertAfter.nextSibling) {
-          tbody.insertBefore(tr, insertAfter.nextSibling);
-        } else {
-          tbody.appendChild(tr);
-        }
+        insertAfter.after(tr);
         insertAfter = tr;
 
         badgeEl.addEventListener('click', e => {
@@ -798,9 +799,9 @@
       card.querySelector('#plgc-show-missing').addEventListener('change', function () {
         settings.showMissing = this.checked;
 
-        // Remove all injected missing rows and missing-only section headers
+        // Remove all injected missing rows and missing-only sections
         document.querySelectorAll('.plgc-missing-row').forEach(r => r.remove());
-        document.querySelectorAll('.plgc-missing-section-header').forEach(r => r.remove());
+        document.querySelectorAll('.plgc-missing-section').forEach(b => b.remove());
 
         // Remove all injected section controls (they get re-created by augment)
         document.querySelectorAll('.plgc-section-controls').forEach(el => el.remove());
