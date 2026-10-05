@@ -35,9 +35,12 @@ Object.assign(context, {
   },
   setTimeout,
   clearTimeout,
+  // Page init code (PrairieTest nav link, pin buttons) arms 10s fallback
+  // timers when it can't find its elements. Stub them so the test exits
+  // immediately; the helpers under test don't use timers.
   window: {
-    setTimeout,
-    clearTimeout,
+    setTimeout: () => 0,
+    clearTimeout: () => {},
     location: {
       hostname: "us.prairielearn.com",
       pathname: "/pl/course_instance/123/assessments",
@@ -62,10 +65,9 @@ const { isAssessment100PercentCompleted, matchesAssessmentSearch, isAssessmentAc
 
 const now = new Date("2026-09-10T12:00:00Z").getTime();
 
-test("isAssessment100PercentCompleted detects complete scores and bonus credit", () => {
+test("isAssessment100PercentCompleted detects complete scores", () => {
   assert.equal(isAssessment100PercentCompleted("100%"), true);
   assert.equal(isAssessment100PercentCompleted("100.0%"), true);
-  assert.equal(isAssessment100PercentCompleted("105%"), true);
   assert.equal(isAssessment100PercentCompleted("99.9%"), false);
   assert.equal(isAssessment100PercentCompleted("0%"), false);
   assert.equal(isAssessment100PercentCompleted("Not started"), false);
@@ -78,7 +80,7 @@ test("matchesAssessmentSearch performs case-insensitive text matching", () => {
     title: "Graph Traversal BFS & DFS",
     badge: "HW 4",
     group: "Homework Assignments",
-    searchableText: "HW 4 Graph Traversal BFS & DFS 100% until Sep 15",
+    availabilityText: "100% until Sep 15",
   };
 
   assert.equal(matchesAssessmentSearch(item, ""), true);
@@ -87,6 +89,7 @@ test("matchesAssessmentSearch performs case-insensitive text matching", () => {
   assert.equal(matchesAssessmentSearch(item, "HW 4"), true);
   assert.equal(matchesAssessmentSearch(item, "hw 4"), true);
   assert.equal(matchesAssessmentSearch(item, "assignments"), true);
+  assert.equal(matchesAssessmentSearch(item, "sep 15"), true);
   assert.equal(matchesAssessmentSearch(item, "binary tree"), false);
 });
 

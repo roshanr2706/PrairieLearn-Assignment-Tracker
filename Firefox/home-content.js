@@ -1482,7 +1482,6 @@ function matchesAssessmentSearch(item, query) {
     item?.title,
     item?.badge,
     item?.group,
-    item?.searchableText,
     item?.availabilityText,
   ].filter(Boolean).map((s) => String(s).toLowerCase());
   return parts.some((p) => p.includes(q));
@@ -1539,7 +1538,7 @@ async function initCourseAssessmentsFilterToolbar() {
       <div class="col-auto">
         <div class="form-check form-switch mb-0">
           <input class="form-check-input" type="checkbox" id="pl-filter-due-soon">
-          <label class="form-check-label small" for="pl-filter-due-soon">Only Active / Due Soon</label>
+          <label class="form-check-label small" for="pl-filter-due-soon">Due in next 14 days</label>
         </div>
       </div>
       <div class="col-auto ms-auto d-flex align-items-center gap-2">
@@ -1559,7 +1558,11 @@ async function initCourseAssessmentsFilterToolbar() {
   const countSpan = toolbar.querySelector("#pl-filter-count");
   const resetBtn = toolbar.querySelector("#pl-filter-reset");
 
-  const storageKey = `pl_filter_pref_${window.location.origin}_${courseInstanceId}`;
+  const storageKey = `pl.filter_prefs.${window.location.origin}.${courseInstanceId}`;
+
+  // Parsing every popover is the expensive part, so keep the parsed rows and
+  // only rebuild them when the MutationObserver sees the table change.
+  let parsedGroups = null;
 
   function parseRows() {
     const trs = collectAssessmentTableRows(table);
@@ -1579,12 +1582,10 @@ async function initCourseAssessmentsFilterToolbar() {
         continue;
       }
 
+      // Rows without the badge/title/availability/score cells are not
+      // assessments, so leave them visible and keep them out of the count.
       const cells = tr.querySelectorAll("td");
-      if (!cells.length) {
-        currentGroup.items.push({
-          row: tr,
-          item: { isUnknown: true, searchableText: normalizeWhitespace(tr.textContent) },
-        });
+      if (cells.length < 4) {
         continue;
       }
 
@@ -1618,7 +1619,6 @@ async function initCourseAssessmentsFilterToolbar() {
           scoreText,
           dueAt,
           status: isClosed ? "closed" : "open",
-          searchableText: normalizeWhitespace(tr.textContent),
         },
       });
     }
@@ -1633,7 +1633,10 @@ async function initCourseAssessmentsFilterToolbar() {
     const query = searchInput ? searchInput.value : "";
     const hideCompleted = hideCompletedCheckbox ? hideCompletedCheckbox.checked : false;
     const onlyActiveDueSoon = dueSoonCheckbox ? dueSoonCheckbox.checked : false;
-    const groups = parseRows();
+    if (!parsedGroups) {
+      parsedGroups = parseRows();
+    }
+    const groups = parsedGroups;
 
     let totalAssessments = 0;
     let visibleAssessments = 0;
@@ -1642,12 +1645,7 @@ async function initCourseAssessmentsFilterToolbar() {
       let groupVisibleCount = 0;
       for (const entry of group.items) {
         totalAssessments += 1;
-        let isVisible = true;
-        if (entry.item.isUnknown) {
-          isVisible = true;
-        } else {
-          isVisible = filterAssessmentItem(entry.item, { query, hideCompleted, onlyActiveDueSoon });
-        }
+        const isVisible = filterAssessmentItem(entry.item, { query, hideCompleted, onlyActiveDueSoon });
 
         if (isVisible) {
           groupVisibleCount += 1;
@@ -1763,8 +1761,10 @@ async function initCourseAssessmentsFilterToolbar() {
   let debounceTimer = null;
   const observer = new MutationObserver((mutations) => {
     const isInternal = mutations.every((m) => {
+      const changedNodes = [...m.addedNodes, ...m.removedNodes];
       return (
         m.target.id === "pl-filter-zero-row" ||
+        (changedNodes.length > 0 && changedNodes.every((node) => node.id === "pl-filter-zero-row")) ||
         (m.target.closest && m.target.closest("#pl-assessment-filter-toolbar")) ||
         (m.type === "attributes" && (m.attributeName === "hidden" || m.attributeName === "aria-hidden"))
       );
@@ -1772,6 +1772,7 @@ async function initCourseAssessmentsFilterToolbar() {
     if (isInternal) return;
     if (debounceTimer) clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => {
+      parsedGroups = null;
       applyFilters();
     }, 150);
   });
@@ -1781,5 +1782,4 @@ async function initCourseAssessmentsFilterToolbar() {
     attributes: true,
     attributeFilter: ["class", "style"],
   });
-  window.addEventListener("beforeunload", () => observer.disconnect(), { once: true });
 }
