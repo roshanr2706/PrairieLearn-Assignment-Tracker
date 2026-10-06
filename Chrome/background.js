@@ -84,6 +84,39 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return;
       }
 
+      if (message.type === "PL_EXPORT_CALENDAR_ICS") {
+        const payload = message.payload || {};
+        const dashboard = await buildDashboardData();
+        const origin = getSenderOrigin(sender) || dashboard?.meta?.origin || "https://us.prairielearn.com";
+        const scope = payload.scope || "all";
+
+        const now = Date.now();
+        const upcoming = (dashboard?.upcoming || []).filter((item) => {
+          const due = Date.parse(item?.dueAt || "");
+          return !Number.isNaN(due) && due >= now;
+        });
+
+        let items = upcoming;
+        if (scope === "week" || scope === "7days") {
+          const weekMs = 7 * 24 * 60 * 60 * 1000;
+          items = items.filter((item) => Date.parse(item.dueAt) <= now + weekMs);
+        }
+
+        if (!items.length) {
+          sendResponse({ ok: false, error: "No upcoming deadlines found for the selected scope." });
+          return;
+        }
+
+        const filename =
+          scope === "week" || scope === "7days"
+            ? "prairielearn-next-7-days-deadlines.ics"
+            : `prairielearn-deadlines-${new Date().toISOString().slice(0, 10)}.ics`;
+
+        const ics = buildAssessmentIcs(items, origin, now);
+        sendResponse({ ok: true, ics, count: items.length, filename });
+        return;
+      }
+
       sendResponse({ ok: false, error: `Unsupported message type: ${message.type}` });
     } catch (error) {
       sendResponse({ ok: false, error: toErrorMessage(error) });
@@ -1291,4 +1324,73 @@ async function mapWithConcurrency(items, concurrency, worker) {
 
   await Promise.all(runners);
   return results;
+}
+
+function buildAssessmentIcs(items, origin, now = Date.now()) {
+  const esc = (value) =>
+    String(value || "")
+      .replace(/\\/g, "\\\\")
+      .replace(/;/g, "\\;")
+      .replace(/,/g, "\\,")
+      .replace(/\r?\n/g, "\\n");
+  const utc = (iso) => new Date(iso).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+  const stamp = utc(new Date(now).toISOString());
+
+  const lines = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//PrairieLearn Tracker//Assessment Deadlines//EN",
+    "CALSCALE:GREGORIAN",
+    "METHOD:PUBLISH",
+  ];
+
+  for (const item of items) {
+    const dueTime = Date.parse(item.dueAt);
+    if (Number.isNaN(dueTime)) continue;
+
+    const end = new Date(dueTime);
+    const start = new Date(dueTime - 60 * 60 * 1000);
+    const startUtc = utc(start.toISOString());
+    const endUtc = utc(end.toISOString());
+
+    const title = [item.courseLabel, item.badge, item.title].filter(Boolean).join(" - ");
+    const url = item.href ? (item.href.startsWith("http") ? item.href : `${origin}${item.href}`) : origin;
+    const details = [
+      `Course: ${item.courseLabel || "Unknown"}`,
+      item.group ? `Group: ${item.group}` : null,
+      `Assessment: ${item.title || "Untitled"}`,
+      item.badge ? `Badge: ${item.badge}` : null,
+      `Due: ${new Date(item.dueAt).toLocaleString()}`,
+      `Link: ${url}`,
+    ]
+      .filter(Boolean)
+      .join("\n");
+
+    const uid = `pl-${item.courseInstanceId || "c"}-${String(item.title || "a").replace(/[^a-z0-9]/gi, "")}-${startUtc}@prairielearn-tracker`;
+
+    lines.push(
+      "BEGIN:VEVENT",
+      `UID:${uid}`,
+      `DTSTAMP:${stamp}`,
+      `DTSTART:${startUtc}`,
+      `DTEND:${endUtc}`,
+      `SUMMARY:${esc(`Due: ${title}`)}`,
+      `DESCRIPTION:${esc(details)}`,
+      `URL:${url}`,
+      "BEGIN:VALARM",
+      "ACTION:DISPLAY",
+      "DESCRIPTION:Assessment due in 24 hours",
+      "TRIGGER:-PT24H",
+      "END:VALARM",
+      "BEGIN:VALARM",
+      "ACTION:DISPLAY",
+      "DESCRIPTION:Assessment due in 2 hours",
+      "TRIGGER:-PT2H",
+      "END:VALARM",
+      "END:VEVENT"
+    );
+  }
+
+  lines.push("END:VCALENDAR", "");
+  return lines.join("\r\n");
 }

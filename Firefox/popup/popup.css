@@ -61,8 +61,26 @@ h1 {
 
 .actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   margin-top: 10px;
+}
+
+.ics-scope-container {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ics-scope-container select {
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  font-weight: 500;
+  font-size: 12px;
+  padding: 8px 6px;
+  background: var(--surface);
+  color: inherit;
+  cursor: pointer;
 }
 
 button {
