@@ -99,9 +99,13 @@ if (icsButton) {
       const link = document.createElement("a");
       link.href = blobUrl;
       link.download = response.filename || "prairielearn-deadlines.ics";
+      // Firefox ignores clicks on detached links, and revoking the URL right
+      // away can cancel the download before it starts.
+      document.body.appendChild(link);
       link.click();
-      URL.revokeObjectURL(blobUrl);
-      const countMsg = response.count ? ` (${response.count} deadline${response.count === 1 ? "" : "s"})` : "";
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
+      const countMsg = response.count ? ` (${response.count} event${response.count === 1 ? "" : "s"})` : "";
       statusLine.textContent = `Calendar file downloaded${countMsg}. Import it into your calendar app.`;
     } catch (error) {
       statusLine.textContent = `Calendar export failed: ${toErrorMessage(error)}`;

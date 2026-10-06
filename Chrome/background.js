@@ -97,7 +97,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         });
 
         let items = upcoming;
-        if (scope === "week" || scope === "7days") {
+        if (scope === "week") {
           const weekMs = 7 * 24 * 60 * 60 * 1000;
           items = items.filter((item) => Date.parse(item.dueAt) <= now + weekMs);
         }
@@ -108,7 +108,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
 
         const filename =
-          scope === "week" || scope === "7days"
+          scope === "week"
             ? "prairielearn-next-7-days-deadlines.ics"
             : `prairielearn-deadlines-${new Date().toISOString().slice(0, 10)}.ics`;
 
@@ -1333,64 +1333,139 @@ function buildAssessmentIcs(items, origin, now = Date.now()) {
       .replace(/;/g, "\\;")
       .replace(/,/g, "\\,")
       .replace(/\r?\n/g, "\\n");
-  const utc = (iso) => new Date(iso).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
-  const stamp = utc(new Date(now).toISOString());
+  const utc = (time) => new Date(time).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+  const stamp = utc(now);
+  const absoluteUrl = (href) => {
+    if (!href) return origin;
+    try {
+      return new URL(href, origin).toString();
+    } catch {
+      return origin;
+    }
+  };
+  const alarms = (what) => [
+    "BEGIN:VALARM",
+    "ACTION:DISPLAY",
+    `DESCRIPTION:${what} in 24 hours`,
+    "TRIGGER:-PT24H",
+    "END:VALARM",
+    "BEGIN:VALARM",
+    "ACTION:DISPLAY",
+    `DESCRIPTION:${what} in 2 hours`,
+    "TRIGGER:-PT2H",
+    "END:VALARM",
+  ];
 
   const lines = [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
-    "PRODID:-//PrairieLearn Tracker//Assessment Deadlines//EN",
+    "PRODID:-//Better PrairieLearn//Assessment Deadlines//EN",
     "CALSCALE:GREGORIAN",
     "METHOD:PUBLISH",
   ];
 
   for (const item of items) {
-    const dueTime = Date.parse(item.dueAt);
+    if (item.isPrairieTest) {
+      // Exams are real start/end sessions, not deadlines. Use the same UID
+      // as the PrairieTest page's own .ics export so importing both files
+      // updates one event instead of creating a duplicate.
+      const start = Date.parse(item.startDate || item.dueAt || "");
+      if (Number.isNaN(start)) continue;
+      const parsedEnd = Date.parse(item.endDate || "");
+      const end = Number.isNaN(parsedEnd)
+        ? start + (item.durationMinutes || 60) * 60 * 1000
+        : parsedEnd;
+      const url = item.href ? absoluteUrl(item.href) : null;
+      const details = [
+        "PrairieTest Exam Reservation",
+        item.location ? `Location: ${item.location}` : null,
+        item.sessionDetails ? `Details: ${item.sessionDetails}` : null,
+        url ? `Reservation: ${url}` : null,
+      ]
+        .filter(Boolean)
+        .join("\n");
+
+      lines.push(
+        "BEGIN:VEVENT",
+        `UID:pt-${item.id || utc(start)}@prairietest-tracker`,
+        `DTSTAMP:${stamp}`,
+        `DTSTART:${utc(start)}`,
+        `DTEND:${utc(end)}`,
+        `SUMMARY:${esc(`Exam: ${item.title || "PrairieTest Exam"}`)}`,
+        `DESCRIPTION:${esc(details)}`,
+        ...(item.location ? [`LOCATION:${esc(item.location)}`] : []),
+        ...(url ? [`URL:${url}`] : []),
+        ...alarms("Exam"),
+        "END:VEVENT"
+      );
+      continue;
+    }
+
+    const dueTime = Date.parse(item.dueAt || "");
     if (Number.isNaN(dueTime)) continue;
 
-    const end = new Date(dueTime);
-    const start = new Date(dueTime - 60 * 60 * 1000);
-    const startUtc = utc(start.toISOString());
-    const endUtc = utc(end.toISOString());
-
     const title = [item.courseLabel, item.badge, item.title].filter(Boolean).join(" - ");
-    const url = item.href ? (item.href.startsWith("http") ? item.href : `${origin}${item.href}`) : origin;
+    const url = absoluteUrl(item.href);
     const details = [
       `Course: ${item.courseLabel || "Unknown"}`,
       item.group ? `Group: ${item.group}` : null,
       `Assessment: ${item.title || "Untitled"}`,
       item.badge ? `Badge: ${item.badge}` : null,
-      `Due: ${new Date(item.dueAt).toLocaleString()}`,
+      `Due: ${new Date(dueTime).toLocaleString()}`,
       `Link: ${url}`,
     ]
       .filter(Boolean)
       .join("\n");
 
-    const uid = `pl-${item.courseInstanceId || "c"}-${String(item.title || "a").replace(/[^a-z0-9]/gi, "")}-${startUtc}@prairielearn-tracker`;
+    // Key the UID on the assessment itself (course + assessment URL), not
+    // its deadline or title, so re-importing after an extension updates the
+    // existing event instead of adding a second one.
+    const identity =
+      item.pinId || `${item.courseInstanceId || "course"}|${item.href || item.title || "assessment"}`;
+    const uid = `pl-${identity.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}@prairielearn-tracker`;
 
     lines.push(
       "BEGIN:VEVENT",
       `UID:${uid}`,
       `DTSTAMP:${stamp}`,
-      `DTSTART:${startUtc}`,
-      `DTEND:${endUtc}`,
+      `DTSTART:${utc(dueTime - 60 * 60 * 1000)}`,
+      `DTEND:${utc(dueTime)}`,
       `SUMMARY:${esc(`Due: ${title}`)}`,
       `DESCRIPTION:${esc(details)}`,
       `URL:${url}`,
-      "BEGIN:VALARM",
-      "ACTION:DISPLAY",
-      "DESCRIPTION:Assessment due in 24 hours",
-      "TRIGGER:-PT24H",
-      "END:VALARM",
-      "BEGIN:VALARM",
-      "ACTION:DISPLAY",
-      "DESCRIPTION:Assessment due in 2 hours",
-      "TRIGGER:-PT2H",
-      "END:VALARM",
+      ...alarms("Assessment due"),
       "END:VEVENT"
     );
   }
 
-  lines.push("END:VCALENDAR", "");
-  return lines.join("\r\n");
+  lines.push("END:VCALENDAR");
+  return lines.map(foldIcsLine).join("\r\n") + "\r\n";
+}
+
+// RFC 5545 caps content lines at 75 octets; longer ones continue on the next
+// line after a single leading space. Split on whole characters so multi-byte
+// UTF-8 (accents, emoji in titles) is never cut in half.
+function foldIcsLine(line) {
+  const encoder = new TextEncoder();
+  if (encoder.encode(line).length <= 75) {
+    return line;
+  }
+
+  const parts = [];
+  let current = "";
+  let currentBytes = 0;
+  for (const char of line) {
+    const charBytes = encoder.encode(char).length;
+    // Continuation lines spend one octet on the leading space.
+    const limit = parts.length === 0 ? 75 : 74;
+    if (currentBytes + charBytes > limit) {
+      parts.push(current);
+      current = "";
+      currentBytes = 0;
+    }
+    current += char;
+    currentBytes += charBytes;
+  }
+  parts.push(current);
+  return parts.join("\r\n ");
 }
