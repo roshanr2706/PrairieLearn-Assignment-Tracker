@@ -1,4 +1,4 @@
-// PrairieTest Content Script for PrairieLearn Tracker extension.
+// PrairieTest Content Script for Better PrairieLearn extension.
 // Handles parsing exam reservations and available exams, injecting calendar action buttons,
 // warning for unreserved exams, and communicating with background service worker.
 
@@ -533,7 +533,7 @@
     const lines = [
       "BEGIN:VCALENDAR",
       "VERSION:2.0",
-      "PRODID:-//PrairieLearn Tracker//PrairieTest//EN",
+      "PRODID:-//Better PrairieLearn//PrairieTest//EN",
       "CALSCALE:GREGORIAN",
       "METHOD:PUBLISH",
     ];
@@ -853,7 +853,7 @@
             },
           });
         } catch (err) {
-          console.warn("[PrairieLearn Tracker] Failed to send single reservation to background:", err);
+          console.warn("[Better PrairieLearn] Failed to send single reservation to background:", err);
         }
 
         const cardHeader = document.querySelector(".card-header");
@@ -884,7 +884,7 @@
         },
       });
     } catch (err) {
-      console.warn("[PrairieLearn Tracker] Failed to send PT data to background:", err);
+      console.warn("[Better PrairieLearn] Failed to send PT data to background:", err);
     }
 
     const cards = Array.from(document.querySelectorAll(".card"));

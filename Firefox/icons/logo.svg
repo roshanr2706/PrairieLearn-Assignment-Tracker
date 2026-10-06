@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Background tile -->
+  <rect x="32" y="32" width="448" height="448" rx="104" fill="#0D131D" />
+  <rect x="32" y="32" width="448" height="448" rx="104" fill="none" stroke="#222E3F" stroke-width="8" />
+
+  <!-- Left chevron (muted slate) -->
+  <path d="M 136 156 L 236 256 L 136 356" fill="none" stroke="#4B6584" stroke-width="54" stroke-linecap="round" stroke-linejoin="round" />
+
+  <!-- Right chevron (PrairieLearn orange) -->
+  <path d="M 246 156 L 346 256 L 246 356" fill="none" stroke="#FF5722" stroke-width="54" stroke-linecap="round" stroke-linejoin="round" />
+
+  <!-- Green plus badge -->
+  <line x1="392" y1="84" x2="392" y2="152" stroke="#00E676" stroke-width="22" stroke-linecap="round" />
+  <line x1="358" y1="118" x2="426" y2="118" stroke="#00E676" stroke-width="22" stroke-linecap="round" />
+</svg>

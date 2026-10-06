@@ -874,13 +874,13 @@ async function updateExtensionBadge(unreservedCount) {
     }
     if (chrome.action.setTitle) {
       await chrome.action.setTitle({
-        title: `PrairieLearn Tracker: ${unreservedCount} unreserved PrairieTest exam${unreservedCount > 1 ? "s" : ""}!`,
+        title: `Better PrairieLearn: ${unreservedCount} unreserved PrairieTest exam${unreservedCount > 1 ? "s" : ""}!`,
       });
     }
   } else {
     await chrome.action.setBadgeText({ text: "" });
     if (chrome.action.setTitle) {
-      await chrome.action.setTitle({ title: "PrairieLearn Tracker" });
+      await chrome.action.setTitle({ title: "Better PrairieLearn" });
     }
   }
 }

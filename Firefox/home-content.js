@@ -8,6 +8,33 @@ const ASSESSMENT_PIN_BUTTON_CLASS = "pl-tracker-pin-btn";
 const PRAIRIE_TEST_HOSTNAME = "us.prairielearn.com";
 const PRAIRIE_TEST_URL = "https://us.prairietest.com/pt";
 const PRAIRIE_TEST_NAV_ITEM_ID = "pl-tracker-prairietest-link";
+const HOME_SETTINGS_BUTTON_ID = "pl-tracker-settings-toggle";
+const HOME_SETTINGS_PANEL_ID = "pl-tracker-settings-panel";
+
+// Same storage keys as the popup's Options panel, so the two stay in sync.
+// badge-override.js already declares CLASSIC_BADGES_KEY in this shared
+// content-script scope, so these need their own names.
+const SETTING_CLASSIC_BADGES_KEY = "pl.settings.classic_badges";
+const SETTING_FILTER_TOOLBAR_KEY = "pl.settings.filter_toolbar";
+// Max rows in the home page Upcoming card. Stored as a number; 0 or unset
+// means show everything. The slider's last stop stands for "All".
+const SETTING_HOME_MAX_UPCOMING_KEY = "pl.settings.home_max_upcoming";
+const HOME_MAX_UPCOMING_SLIDER_MAX = 20;
+const HOME_MAX_UPCOMING_SLIDER_ALL = HOME_MAX_UPCOMING_SLIDER_MAX + 1;
+const EXTENSION_SETTINGS = [
+  {
+    key: SETTING_CLASSIC_BADGES_KEY,
+    title: "Classic badge style",
+    description: "Restore the pre-2025 solid-color assessment badges on PrairieLearn pages",
+    defaultValue: false,
+  },
+  {
+    key: SETTING_FILTER_TOOLBAR_KEY,
+    title: "Assessment filter toolbar",
+    description: "Search and filter bar above the table on course assessment pages",
+    defaultValue: true,
+  },
+];
 
 if (shouldInjectPrairieTestLink()) {
   initPrairieTestHeaderLink();
@@ -19,7 +46,7 @@ if (isPrairieLearnHomePage()) {
 
 if (isAssessmentsPage()) {
   void initAssessmentsPinButtons();
-  void initCourseAssessmentsFilterToolbar();
+  initFilterToolbarSetting();
 }
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -50,6 +77,7 @@ async function initHomeUpcomingSection() {
   }
 
   ensureHomeUpcomingCard(host);
+  watchHomeSettings();
   await refreshAndRenderHomeUpcoming();
 }
 
@@ -208,10 +236,27 @@ function createHomeUpcomingCard() {
   subtitle.id = HOME_CARD_SUBTITLE_ID;
   subtitle.className = "ms-3 small text-white-50";
 
+  const settingsPanel = createHomeSettingsPanel();
+
+  const settingsButton = document.createElement("button");
+  settingsButton.id = HOME_SETTINGS_BUTTON_ID;
+  settingsButton.type = "button";
+  settingsButton.className = "btn btn-light btn-sm ms-2";
+  settingsButton.textContent = "Settings";
+  settingsButton.title = "Better PrairieLearn settings";
+  settingsButton.setAttribute("aria-controls", HOME_SETTINGS_PANEL_ID);
+  settingsButton.setAttribute("aria-expanded", "false");
+  settingsButton.addEventListener("click", () => {
+    settingsPanel.hidden = !settingsPanel.hidden;
+    settingsButton.setAttribute("aria-expanded", String(!settingsPanel.hidden));
+  });
+
   header.appendChild(title);
   header.appendChild(subtitle);
   header.appendChild(refreshButton);
+  header.appendChild(settingsButton);
   card.appendChild(header);
+  card.appendChild(settingsPanel);
 
   const body = document.createElement("div");
   body.id = HOME_CARD_BODY_ID;
@@ -220,6 +265,151 @@ function createHomeUpcomingCard() {
   card.appendChild(body);
 
   return card;
+}
+
+function createHomeSettingsPanel() {
+  const panel = document.createElement("div");
+  panel.id = HOME_SETTINGS_PANEL_ID;
+  panel.className = "card-body border-bottom bg-light";
+  panel.hidden = true;
+
+  const heading = document.createElement("h3");
+  heading.className = "h6 mb-3";
+  heading.textContent = "Better PrairieLearn settings";
+  panel.appendChild(heading);
+
+  for (const setting of EXTENSION_SETTINGS) {
+    const inputId = `pl-tracker-setting-${setting.key.replace(/\W+/g, "-")}`;
+
+    const row = document.createElement("div");
+    row.className = "form-check form-switch mb-2";
+
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.id = inputId;
+    input.className = "form-check-input";
+    input.setAttribute("role", "switch");
+    input.dataset.settingKey = setting.key;
+    input.addEventListener("change", () => {
+      chrome.storage.local.set({ [setting.key]: input.checked });
+    });
+
+    const label = document.createElement("label");
+    label.className = "form-check-label";
+    label.htmlFor = inputId;
+    label.textContent = setting.title;
+
+    const description = document.createElement("div");
+    description.className = "form-text mt-0";
+    description.textContent = setting.description;
+
+    row.append(input, label, description);
+    panel.appendChild(row);
+  }
+
+  panel.appendChild(createHomeMaxUpcomingRow());
+
+  syncHomeSettingsPanel();
+  return panel;
+}
+
+function createHomeMaxUpcomingRow() {
+  const inputId = "pl-tracker-setting-home-max-upcoming";
+
+  const row = document.createElement("div");
+  row.className = "mt-3";
+
+  const label = document.createElement("label");
+  label.className = "form-label mb-0 d-flex justify-content-between";
+  label.htmlFor = inputId;
+  label.style.maxWidth = "320px";
+  const labelText = document.createElement("span");
+  labelText.textContent = "Max assessments shown here";
+  const valueText = document.createElement("strong");
+  valueText.id = `${inputId}-value`;
+  label.append(labelText, valueText);
+
+  const input = document.createElement("input");
+  input.type = "range";
+  input.id = inputId;
+  input.className = "form-range";
+  input.style.maxWidth = "320px";
+  input.min = "1";
+  input.max = String(HOME_MAX_UPCOMING_SLIDER_ALL);
+  input.step = "1";
+  input.dataset.settingKey = SETTING_HOME_MAX_UPCOMING_KEY;
+  // Update the number while dragging, but only save once the user lets go.
+  input.addEventListener("input", () => {
+    valueText.textContent = formatHomeMaxUpcomingSlider(input.value);
+  });
+  input.addEventListener("change", () => {
+    const position = Number(input.value);
+    const max = position >= HOME_MAX_UPCOMING_SLIDER_ALL ? 0 : position;
+    chrome.storage.local.set({ [SETTING_HOME_MAX_UPCOMING_KEY]: max });
+  });
+
+  const description = document.createElement("div");
+  description.className = "form-text mt-0";
+  description.textContent = "Pinned and soonest-due assessments are kept first";
+
+  row.append(label, input, description);
+  return row;
+}
+
+function formatHomeMaxUpcomingSlider(position) {
+  return Number(position) >= HOME_MAX_UPCOMING_SLIDER_ALL ? "All" : String(position);
+}
+
+// 0, unset or anything invalid means no limit.
+function normalizeHomeMaxUpcoming(value) {
+  const max = Number(value);
+  return Number.isInteger(max) && max > 0 ? max : 0;
+}
+
+function syncHomeSettingsPanel() {
+  chrome.storage.local.get(
+    [...EXTENSION_SETTINGS.map((setting) => setting.key), SETTING_HOME_MAX_UPCOMING_KEY],
+    (result) => {
+      for (const setting of EXTENSION_SETTINGS) {
+        const input = document.querySelector(
+          `#${HOME_SETTINGS_PANEL_ID} [data-setting-key="${setting.key}"]`
+        );
+        const stored = result?.[setting.key];
+        if (input) {
+          input.checked = typeof stored === "boolean" ? stored : setting.defaultValue;
+        }
+      }
+
+      homeMaxUpcoming = normalizeHomeMaxUpcoming(result?.[SETTING_HOME_MAX_UPCOMING_KEY]);
+      const slider = document.getElementById("pl-tracker-setting-home-max-upcoming");
+      if (slider) {
+        slider.value = String(homeMaxUpcoming || HOME_MAX_UPCOMING_SLIDER_ALL);
+        const valueText = document.getElementById(`${slider.id}-value`);
+        if (valueText) {
+          valueText.textContent = formatHomeMaxUpcomingSlider(slider.value);
+        }
+      }
+    }
+  );
+}
+
+// Keep the panel's switches in step when a setting changes from the popup.
+function watchHomeSettings() {
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== "local") {
+      return;
+    }
+    if (EXTENSION_SETTINGS.some((setting) => setting.key in changes)) {
+      syncHomeSettingsPanel();
+    }
+    if (SETTING_HOME_MAX_UPCOMING_KEY in changes) {
+      homeMaxUpcoming = normalizeHomeMaxUpcoming(changes[SETTING_HOME_MAX_UPCOMING_KEY].newValue);
+      syncHomeSettingsPanel();
+      if (lastHomeDashboard) {
+        renderHomeUpcomingFromDashboard(lastHomeDashboard);
+      }
+    }
+  });
 }
 
 async function loadAndRenderHomeUpcomingFromBackground() {
@@ -492,7 +682,11 @@ async function unpinFromHomePinnedTag(item) {
   }
 }
 
+let homeMaxUpcoming = 0;
+let lastHomeDashboard = null;
+
 function renderHomeUpcomingFromDashboard(dashboard) {
+  lastHomeDashboard = dashboard;
   const host = getHomeCardsHost();
   if (!host) {
     return;
@@ -534,8 +728,12 @@ function renderHomeUpcomingFromDashboard(dashboard) {
   thead.innerHTML = "<tr><th>Course</th><th>Assessment</th><th>Due</th><th>Progress</th></tr>";
   table.appendChild(thead);
 
+  // The list is already sorted pinned-first then by due date, so cutting the
+  // tail keeps the most relevant rows.
+  const shown = homeMaxUpcoming > 0 ? filtered.slice(0, homeMaxUpcoming) : filtered;
+
   const tbody = document.createElement("tbody");
-  for (const item of filtered) {
+  for (const item of shown) {
     const row = document.createElement("tr");
 
     const courseCell = document.createElement("td");
@@ -633,6 +831,15 @@ function renderHomeUpcomingFromDashboard(dashboard) {
   table.appendChild(tbody);
   tableResponsive.appendChild(table);
   body.appendChild(tableResponsive);
+
+  const hiddenCount = filtered.length - shown.length;
+  if (hiddenCount > 0) {
+    const more = document.createElement("p");
+    more.className = "small text-muted mt-2 mb-0";
+    more.textContent = `${hiddenCount} more not shown. Change the limit in Settings.`;
+    body.appendChild(more);
+  }
+
   setHomeCardSubtitle(refreshedLabel);
 }
 
@@ -1498,9 +1705,35 @@ function filterAssessmentItem(item, filters = {}, context = {}) {
   return true;
 }
 
+let filterToolbarEnabled = false;
+let filterToolbarTeardown = null;
+
+// The toolbar is on unless the user switched it off, and follows the setting
+// live so toggling it in the popup or home page doesn't need a reload.
+function initFilterToolbarSetting() {
+  chrome.storage.local.get(SETTING_FILTER_TOOLBAR_KEY, (result) => {
+    setFilterToolbarEnabled(result?.[SETTING_FILTER_TOOLBAR_KEY] !== false);
+  });
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== "local" || !(SETTING_FILTER_TOOLBAR_KEY in changes)) return;
+    setFilterToolbarEnabled(changes[SETTING_FILTER_TOOLBAR_KEY].newValue !== false);
+  });
+}
+
+function setFilterToolbarEnabled(enabled) {
+  filterToolbarEnabled = enabled;
+  if (enabled) {
+    void initCourseAssessmentsFilterToolbar();
+  } else if (filterToolbarTeardown) {
+    filterToolbarTeardown();
+  }
+}
+
 async function initCourseAssessmentsFilterToolbar() {
   const table = await waitForAssessmentsTable(10000);
   if (!table) return;
+  // The setting may have been switched off while we waited for the table.
+  if (!filterToolbarEnabled) return;
 
   const courseInstanceId = getCourseInstanceIdFromPath(window.location.pathname);
   if (!courseInstanceId) return;
@@ -1624,6 +1857,8 @@ async function initCourseAssessmentsFilterToolbar() {
   }
 
   function applyFilters() {
+    // A pending storage read or debounce can land after the toolbar is removed.
+    if (!toolbar.isConnected) return;
     const query = searchInput ? searchInput.value : "";
     const hideCompleted = hideCompletedCheckbox ? hideCompletedCheckbox.checked : false;
     const onlyActiveDueSoon = dueSoonCheckbox ? dueSoonCheckbox.checked : false;
@@ -1776,4 +2011,18 @@ async function initCourseAssessmentsFilterToolbar() {
     attributes: true,
     attributeFilter: ["class", "style"],
   });
+
+  filterToolbarTeardown = () => {
+    filterToolbarTeardown = null;
+    observer.disconnect();
+    clearTimeout(debounceTimer);
+    toolbar.remove();
+    document.getElementById("pl-filter-zero-row")?.remove();
+    for (const tr of collectAssessmentTableRows(table)) {
+      if (tr.getAttribute("aria-hidden") === "true") {
+        tr.hidden = false;
+        tr.removeAttribute("aria-hidden");
+      }
+    }
+  };
 }

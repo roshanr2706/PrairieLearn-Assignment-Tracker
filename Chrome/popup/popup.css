@@ -357,6 +357,32 @@ td.due-soon .due-relative { color: var(--due-soon); }
   padding: 12px 14px;
 }
 
+.toggle-row + .toggle-row {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.range-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.range-control input {
+  width: 140px;
+  accent-color: var(--accent);
+}
+
+.range-control output {
+  min-width: 24px;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: right;
+  color: var(--text);
+}
+
 .toggle-row {
   display: flex;
   align-items: center;

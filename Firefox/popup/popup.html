@@ -3,13 +3,13 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>PrairieLearn Tracker</title>
+    <title>Better PrairieLearn</title>
     <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
     <main class="app">
       <header class="header">
-        <h1>PrairieLearn Tracker</h1>
+        <h1>Better PrairieLearn</h1>
         <p id="statusLine" class="status">Loading dashboard...</p>
         <p id="metaLine" class="meta"></p>
         <div class="actions">
@@ -28,6 +28,26 @@
           <span class="toggle-track">
             <input type="checkbox" id="classicBadgesToggle" />
             <span class="toggle-thumb"></span>
+          </span>
+        </label>
+        <label class="toggle-row" for="filterToolbarToggle">
+          <span class="toggle-label">
+            <span class="toggle-title">Assessment filter toolbar</span>
+            <span class="toggle-desc">Search and filter bar above the table on course assessment pages</span>
+          </span>
+          <span class="toggle-track">
+            <input type="checkbox" id="filterToolbarToggle" />
+            <span class="toggle-thumb"></span>
+          </span>
+        </label>
+        <label class="toggle-row" for="homeMaxUpcomingRange">
+          <span class="toggle-label">
+            <span class="toggle-title">Max assessments on home page</span>
+            <span class="toggle-desc">Rows in the Upcoming card on the PrairieLearn home page; pinned and soonest-due are kept first</span>
+          </span>
+          <span class="range-control">
+            <input type="range" id="homeMaxUpcomingRange" min="1" max="21" step="1" value="21" />
+            <output id="homeMaxUpcomingValue" for="homeMaxUpcomingRange">All</output>
           </span>
         </label>
       </section>

@@ -27,6 +27,7 @@ Object.assign(context, {
       onMessage: { addListener: () => {} },
     },
     storage: {
+      onChanged: { addListener: () => {} },
       local: {
         get: () => {},
         set: () => {},

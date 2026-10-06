@@ -3,6 +3,9 @@ const openHomeButton = document.getElementById("openHomeBtn");
 const optionsButton = document.getElementById("optionsBtn");
 const optionsPanel = document.getElementById("optionsPanel");
 const classicBadgesToggle = document.getElementById("classicBadgesToggle");
+const filterToolbarToggle = document.getElementById("filterToolbarToggle");
+const homeMaxUpcomingRange = document.getElementById("homeMaxUpcomingRange");
+const homeMaxUpcomingValue = document.getElementById("homeMaxUpcomingValue");
 const statusLine = document.getElementById("statusLine");
 const metaLine = document.getElementById("metaLine");
 const upcomingBody = document.getElementById("upcomingBody");
@@ -10,11 +13,25 @@ const emptyState = document.getElementById("emptyState");
 const unreservedPanel = document.getElementById("unreservedPanel");
 
 const CLASSIC_BADGES_KEY = "pl.settings.classic_badges";
+const FILTER_TOOLBAR_KEY = "pl.settings.filter_toolbar";
+// 0 or unset means no limit; the slider's last stop (21) stands for "All".
+const HOME_MAX_UPCOMING_KEY = "pl.settings.home_max_upcoming";
+const HOME_MAX_UPCOMING_SLIDER_ALL = 21;
 const COURSE_TONE_COUNT = 6;
 
-chrome.storage.local.get(CLASSIC_BADGES_KEY, (result) => {
+chrome.storage.local.get([CLASSIC_BADGES_KEY, FILTER_TOOLBAR_KEY, HOME_MAX_UPCOMING_KEY], (result) => {
   classicBadgesToggle.checked = !!result[CLASSIC_BADGES_KEY];
+  // On by default: only an explicit false turns the toolbar off.
+  filterToolbarToggle.checked = result[FILTER_TOOLBAR_KEY] !== false;
+  const max = Number(result[HOME_MAX_UPCOMING_KEY]);
+  homeMaxUpcomingRange.value = String(Number.isInteger(max) && max > 0 ? max : HOME_MAX_UPCOMING_SLIDER_ALL);
+  updateHomeMaxUpcomingLabel();
 });
+
+function updateHomeMaxUpcomingLabel() {
+  const position = Number(homeMaxUpcomingRange.value);
+  homeMaxUpcomingValue.textContent = position >= HOME_MAX_UPCOMING_SLIDER_ALL ? "All" : String(position);
+}
 
 optionsButton.addEventListener("click", () => {
   optionsPanel.classList.toggle("hidden");
@@ -22,6 +39,17 @@ optionsButton.addEventListener("click", () => {
 
 classicBadgesToggle.addEventListener("change", (e) => {
   chrome.storage.local.set({ [CLASSIC_BADGES_KEY]: e.target.checked });
+});
+
+filterToolbarToggle.addEventListener("change", (e) => {
+  chrome.storage.local.set({ [FILTER_TOOLBAR_KEY]: e.target.checked });
+});
+
+homeMaxUpcomingRange.addEventListener("input", updateHomeMaxUpcomingLabel);
+homeMaxUpcomingRange.addEventListener("change", () => {
+  const position = Number(homeMaxUpcomingRange.value);
+  const max = position >= HOME_MAX_UPCOMING_SLIDER_ALL ? 0 : position;
+  chrome.storage.local.set({ [HOME_MAX_UPCOMING_KEY]: max });
 });
 
 let latestOrigin = null;
