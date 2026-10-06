@@ -1391,7 +1391,8 @@ function buildAssessmentIcs(items, origin, now = Date.now()) {
         `DTSTAMP:${stamp}`,
         `DTSTART:${utc(start)}`,
         `DTEND:${utc(end)}`,
-        `SUMMARY:${esc(`Exam: ${item.title || "PrairieTest Exam"}`)}`,
+        // Same "Course: Exam" title the PrairieTest page's export uses.
+        `SUMMARY:${esc(`Exam: ${[item.courseLabel, item.title || "PrairieTest Exam"].filter(Boolean).join(": ")}`)}`,
         `DESCRIPTION:${esc(details)}`,
         ...(item.location ? [`LOCATION:${esc(item.location)}`] : []),
         ...(url ? [`URL:${url}`] : []),

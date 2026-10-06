@@ -22,6 +22,17 @@
   `;
   document.head.appendChild(style);
 
+  // Section names come from the course's page and custom sections from the
+  // user, so escape them before they go into innerHTML templates.
+  function escapeHtml(value) {
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
   //     DOM Parsing
 
   function parseGradebook() {
@@ -334,14 +345,14 @@
         const color = gradeColor(b.avg);
         if (settings.mode === 'section') {
           html += `<tr>
-            <td>${b.name}</td>
+            <td>${escapeHtml(b.name)}</td>
             <td class="text-end ${color}">${fmtPct(b.avg)}</td>
             <td class="text-end text-muted">${b.weight} %</td>
             <td class="text-end ${b.contribution !== null ? color : 'text-secondary'}">${b.contribution !== null ? fmtPct(b.contribution) : '—'}</td>
           </tr>`;
         } else {
           html += `<tr>
-            <td>${b.name}</td>
+            <td>${escapeHtml(b.name)}</td>
             <td class="text-end ${color}">${fmtPct(b.avg)}</td>
             <td class="text-end text-muted">${b.count} assignments</td>
           </tr>`;
@@ -410,11 +421,11 @@
           <label class="text-muted"> Weight: 
             <input type="number" min="0" max="100" step="1"
               class="form-control form-control-sm d-inline-block plgc-weight-input"
-              data-section="${currentSectionName}" value="${sec.weight}"> %
+              data-section="${escapeHtml(currentSectionName)}" value="${sec.weight}"> %
           </label>
           <label class="text-muted">
             <input class="form-check-input plgc-drop-input" type="checkbox"
-              data-section="${currentSectionName}" ${sec.dropLowest ? 'checked' : ''}>
+              data-section="${escapeHtml(currentSectionName)}" ${sec.dropLowest ? 'checked' : ''}>
             Drop lowest
           </label>
         `;
@@ -502,11 +513,11 @@
           <label class="text-muted"> Weight: 
             <input type="number" min="0" max="100" step="1"
               class="form-control form-control-sm d-inline-block plgc-weight-input"
-              data-section="${sectionName}" value="${sec.weight}"> %
+              data-section="${escapeHtml(sectionName)}" value="${sec.weight}"> %
           </label>
           <label class="text-muted">
             <input class="form-check-input plgc-drop-input" type="checkbox"
-              data-section="${sectionName}" ${sec.dropLowest ? 'checked' : ''}>
+              data-section="${escapeHtml(sectionName)}" ${sec.dropLowest ? 'checked' : ''}>
             Drop lowest
           </label>
         `;
@@ -709,13 +720,13 @@
         row.className = 'd-flex align-items-center gap-2 mb-1';
         row.innerHTML = `
           <input type="text" class="form-control form-control-sm" placeholder="Name (e.g. Final Exam)"
-            style="width:160px" value="${(cs.name || '').replace(/"/g, '&quot;')}" data-field="name">
+            style="width:160px" value="${escapeHtml(cs.name)}" data-field="name">
           <label class="small text-muted mb-0">Score:</label>
           <input type="number" min="0" max="100" step="0.1" class="form-control form-control-sm"
-            style="width:75px" value="${cs.score ?? ''}" placeholder="%" data-field="score">
+            style="width:75px" value="${escapeHtml(cs.score)}" placeholder="%" data-field="score">
           <label class="small text-muted mb-0">Weight:</label>
           <input type="number" min="0" max="100" step="1" class="form-control form-control-sm"
-            style="width:65px" value="${cs.weight ?? 0}" placeholder="%" data-field="weight">
+            style="width:65px" value="${escapeHtml(cs.weight ?? 0)}" placeholder="%" data-field="weight">
           <button class="btn btn-sm btn-outline-danger plgc-remove-custom" title="Remove">&times;</button>
         `;
 

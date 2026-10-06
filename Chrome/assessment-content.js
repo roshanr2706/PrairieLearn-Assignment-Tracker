@@ -149,7 +149,9 @@
         q.data = parseQuestionPage(htmlPages[i]);
       });
 
-      const assessmentTitle = document.querySelector('.card-header.bg-primary h1')?.textContent.trim() ?? 'Assessment';
+      // The heading wraps across lines in PL's markup; collapse that whitespace.
+      const assessmentTitle =
+        document.querySelector('.card-header.bg-primary h1')?.textContent.replace(/\s+/g, ' ').trim() || 'Assessment';
       const output = buildOutput(assessmentTitle, items);
 
       try {

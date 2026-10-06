@@ -210,7 +210,7 @@ function renderUnreservedPanel(data) {
   const title = document.createElement("p");
   title.className = "unreserved-title";
   const count = items.length;
-  title.textContent = `${count} PrairieTest exam${count > 1 ? "s" : ""} need a reservation`;
+  title.textContent = `${count} PrairieTest exam${count > 1 ? "s need" : " needs"} a reservation`;
   unreservedPanel.appendChild(title);
 
   const list = document.createElement("ul");

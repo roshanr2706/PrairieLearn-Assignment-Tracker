@@ -92,7 +92,6 @@
     const href = examLink?.getAttribute("href") || "";
     const absoluteUrl = toAbsoluteUrl(href, origin);
     const idMatch = href.match(/\/reservation\/(\d+)/);
-    const id = idMatch ? idMatch[1] : `pt-${Date.now()}`;
 
     let courseLabel = "";
     let examTitle = rawTitle;
@@ -160,6 +159,15 @@
         endDateIso = new Date(startMs + durationMinutes * 60 * 1000).toISOString();
       }
     }
+
+    // Rows without a /reservation/<id> link need an id that is the same on
+    // every visit; Date.now() gave rows parsed in the same millisecond the
+    // same id, which made calendar apps merge different exams into one.
+    const fallbackId = `${rawTitle}-${startDateIso || friendlyDateText}`
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "");
+    const id = idMatch ? idMatch[1] : `x-${fallbackId}`;
 
     return {
       id,
@@ -253,6 +261,12 @@
     };
   }
 
+  // "Past exam reservations" also contains "exam reservations"; those exams are
+  // over, so they must not be synced, exported or given calendar buttons.
+  function isUpcomingReservationsHeading(heading) {
+    return heading.includes("exam reservations") && !heading.includes("past");
+  }
+
   function parsePrairieTestDocument(doc, origin = "https://us.prairietest.com") {
     const reservations = [];
     const unreservedExams = [];
@@ -261,7 +275,7 @@
     for (const card of cards) {
       const heading = normalizeWhitespace(card.querySelector(".card-header h2, .card-header")?.textContent || "").toLowerCase();
 
-      if (heading.includes("exam reservations")) {
+      if (isUpcomingReservationsHeading(heading)) {
         const items = Array.from(card.querySelectorAll("ul.list-group > li.list-group-item"));
         for (const li of items) {
           const res = parseReservationItem(li, origin);
@@ -891,7 +905,7 @@
     for (const card of cards) {
       const heading = normalizeWhitespace(card.querySelector(".card-header h2, .card-header")?.textContent || "").toLowerCase();
 
-      if (heading.includes("exam reservations")) {
+      if (isUpcomingReservationsHeading(heading)) {
         injectReservationsCardActions(card, reservations);
 
         // Re-parse each <li> in place rather than indexing into the filtered
