@@ -1275,7 +1275,20 @@ function parsePopoverAccessDetails(buttonElement) {
   }
 
   const popoverDoc = new DOMParser().parseFromString(decodedHtml, "text/html");
-  const rows = Array.from(popoverDoc.querySelectorAll("tr")).slice(1);
+  // PrairieLearn has used two layouts for this table: "Credit | Start | End"
+  // and, since late 2026, "Credit | Until". Find the columns by their headings
+  // so either one works.
+  const allRows = Array.from(popoverDoc.querySelectorAll("tr"));
+  const headings = Array.from(allRows[0]?.querySelectorAll("th, td") || []).map((cell) =>
+    normalizeWhitespace(cell.textContent).toLowerCase()
+  );
+  const startIndex = headings.indexOf("start");
+  let endIndex = headings.findIndex((heading) => heading === "end" || heading === "until");
+  if (endIndex === -1) {
+    endIndex = headings.length === 2 ? 1 : 2;
+  }
+
+  const rows = allRows.slice(1);
   if (!rows.length) {
     return [];
   }
@@ -1286,8 +1299,8 @@ function parsePopoverAccessDetails(buttonElement) {
     );
 
     const credit = values[0] || null;
-    const start = values[1] || null;
-    const end = values[2] || null;
+    const start = startIndex === -1 ? null : values[startIndex] || null;
+    const end = values[endIndex] || null;
 
     return {
       credit,
@@ -1485,57 +1498,117 @@ function formatUtcOffset(offsetMinutes) {
   return `${sign}${hours}:${minutes}`;
 }
 
+// PrairieLearn writes the availability cell in relative words, for example
+// "100% until end of today", "100% until tomorrow, 6:05pm" or
+// "100% until Wed, Dec 2, end of day". Older pages used the form
+// "until 23:59, Sun, Nov 29". The text has no timezone, so it is read in local
+// time. This only runs for rows without a popover holding the exact timestamp.
+const FALLBACK_MONTHS = {
+  jan: 0,
+  feb: 1,
+  mar: 2,
+  apr: 3,
+  may: 4,
+  jun: 5,
+  jul: 6,
+  aug: 7,
+  sep: 8,
+  oct: 9,
+  nov: 10,
+  dec: 11,
+};
+const FALLBACK_WEEKDAYS = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 };
+
 function parseAvailabilityFallback(text) {
   if (typeof text !== "string") {
     return null;
   }
 
-  const match = text.match(/until\s+(\d{1,2}):(\d{2}),\s*\w{3},\s*([A-Za-z]{3})\s+(\d{1,2})/i);
-  if (!match) {
+  const untilMatch = text.match(/\buntil\s+([^;]+)/i);
+  if (!untilMatch) {
     return null;
   }
-
-  const hour = Number.parseInt(match[1], 10);
-  const minute = Number.parseInt(match[2], 10);
-  const monthToken = match[3].toLowerCase();
-  const day = Number.parseInt(match[4], 10);
-
-  const monthLookup = {
-    jan: 0,
-    feb: 1,
-    mar: 2,
-    apr: 3,
-    may: 4,
-    jun: 5,
-    jul: 6,
-    aug: 7,
-    sep: 8,
-    oct: 9,
-    nov: 10,
-    dec: 11,
-  };
-  const month = monthLookup[monthToken];
-
-  if (
-    Number.isNaN(hour) ||
-    Number.isNaN(minute) ||
-    Number.isNaN(day) ||
-    month === undefined ||
-    hour < 0 ||
-    hour > 23 ||
-    minute < 0 ||
-    minute > 59 ||
-    day < 1 ||
-    day > 31
-  ) {
-    return null;
-  }
+  const phrase = untilMatch[1].trim().toLowerCase();
 
   const now = new Date();
-  let candidate = new Date(now.getFullYear(), month, day, hour, minute, 0);
+  let date = null;
+  let yearGiven = false;
 
-  if (candidate.getTime() < now.getTime() - 1000 * 60 * 60 * 24 * 120) {
-    candidate = new Date(now.getFullYear() + 1, month, day, hour, minute, 0);
+  const monthDay = phrase.match(
+    /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(\d{1,2})(?:,?\s+(\d{4}))?\b/
+  );
+  const weekday = phrase.match(/\b(sun|mon|tue|wed|thu|fri|sat)[a-z]*\b/);
+  if (monthDay) {
+    const year = monthDay[3] ? Number.parseInt(monthDay[3], 10) : now.getFullYear();
+    const month = FALLBACK_MONTHS[monthDay[1]];
+    const day = Number.parseInt(monthDay[2], 10);
+    date = new Date(year, month, day);
+    if (date.getMonth() !== month || date.getDate() !== day) {
+      return null;
+    }
+    yearGiven = Boolean(monthDay[3]);
+  } else if (/\btomorrow\b/.test(phrase)) {
+    date = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+    yearGiven = true;
+  } else if (/\btoday\b/.test(phrase)) {
+    date = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    yearGiven = true;
+  } else if (weekday) {
+    const daysAhead = (FALLBACK_WEEKDAYS[weekday[1]] - now.getDay() + 7) % 7;
+    date = new Date(now.getFullYear(), now.getMonth(), now.getDate() + daysAhead);
+    yearGiven = true;
+  }
+
+  // "end of day" (or no time at all) means the last second of that day.
+  let hour = 23;
+  let minute = 59;
+  let second = 59;
+  let hasTime = /\bend of\b/.test(phrase);
+
+  const twelveHour = phrase.match(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/);
+  const twentyFourHour = phrase.match(/\b(\d{1,2}):(\d{2})\b/);
+  if (twelveHour) {
+    hour = (Number.parseInt(twelveHour[1], 10) % 12) + (twelveHour[3] === "pm" ? 12 : 0);
+    minute = twelveHour[2] ? Number.parseInt(twelveHour[2], 10) : 0;
+    second = 0;
+    hasTime = true;
+  } else if (twentyFourHour) {
+    hour = Number.parseInt(twentyFourHour[1], 10);
+    minute = Number.parseInt(twentyFourHour[2], 10);
+    second = 0;
+    hasTime = true;
+  } else if (/\bstart of day\b/.test(phrase)) {
+    hour = 0;
+    minute = 0;
+    second = 0;
+    hasTime = true;
+  }
+
+  if (hour > 23 || minute > 59) {
+    return null;
+  }
+
+  // A bare time such as "until 6:05pm" means today.
+  if (!date) {
+    if (!hasTime) {
+      return null;
+    }
+    date = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    yearGiven = true;
+  }
+
+  let candidate = new Date(date.getFullYear(), date.getMonth(), date.getDate(), hour, minute, second);
+
+  // No year in the text: a date far in the past is really next year's.
+  if (!yearGiven && candidate.getTime() < now.getTime() - 1000 * 60 * 60 * 24 * 120) {
+    candidate = new Date(
+      candidate.getFullYear() + 1,
+      candidate.getMonth(),
+      candidate.getDate(),
+      hour,
+      minute,
+      second
+    );
   }
 
   return candidate.toISOString();
